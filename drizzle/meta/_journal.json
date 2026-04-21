@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1773106908783,
+      "tag": "0000_colossal_moonstone",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1773108131325,
+      "tag": "0001_cooing_reaper",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773190435794,
+      "tag": "0002_cooing_wasp",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1775904182114,
+      "tag": "0003_tearful_absorbing_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1775989612221,
+      "tag": "0004_salty_wallflower",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1776071116945,
+      "tag": "0005_bright_sunfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1776322771261,
+      "tag": "0006_wealthy_preak",
+      "breakpoints": true
+    }
+  ]
+}
