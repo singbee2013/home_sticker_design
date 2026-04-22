@@ -638,6 +638,17 @@ export const OUTPUT_MODE_LABELS: Record<OutputMode, string> = {
   both: "平铺图 + 效果图",
 };
 
+/** 文生图 / 参考图生图 选用的上游模型 */
+export const IMAGE_GEN_PROVIDERS = ["auto", "gemini", "openai", "siliconflow"] as const;
+export type ImageGenProvider = (typeof IMAGE_GEN_PROVIDERS)[number];
+
+export const IMAGE_GEN_PROVIDER_LABELS: Record<ImageGenProvider, string> = {
+  auto: "自动（Gemini 优先，失败再用 SiliconFlow）",
+  gemini: "Gemini（Nano Banana / Flash Image）",
+  openai: "ChatGPT Images / OpenAI（gpt-image-2）",
+  siliconflow: "SiliconFlow（FLUX / Kolors）",
+};
+
 const MARKET_STYLE_HINT: Record<TargetMarket, string> = {
   north_america: "warm contemporary North American interior styling",
   europe: "refined European interior design, understated elegance",

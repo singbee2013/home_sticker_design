@@ -6,6 +6,8 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   // OpenAI (legacy, kept for backward compat)
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  /** Image API model for ChatGPT Images / gpt-image family (default gpt-image-2) */
+  openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2",
   // Google Gemini (text/vision + 2.5 Flash Image generation)
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
   // Silicon Flow (FLUX image generation, supports Alipay)

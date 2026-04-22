@@ -14,7 +14,8 @@ import {
   OUTPUT_MODE_LABELS,
   DEVICE_MODEL_REFERENCE, DEVICE_SKIN_GENERATION_MODE_HINT_ZH, isDeviceSkinCategory,
   AMAZON_LISTING_COUNT_OPTIONS,
-  type TemplateCategory, type OutputMode, type TargetMarket,
+  IMAGE_GEN_PROVIDERS, IMAGE_GEN_PROVIDER_LABELS,
+  type TemplateCategory, type OutputMode, type TargetMarket, type ImageGenProvider,
 } from "@shared/types";
 import {
   Sparkles, Loader2, Download, Eye, CheckCircle2, XCircle,
@@ -59,6 +60,7 @@ export default function Generate() {
   const [outputMode, setOutputMode] = useState<OutputMode>("both");
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<number[]>([]);
   const [generateSeamless, setGenerateSeamless] = useState(false);
+  const [imageProvider, setImageProvider] = useState<ImageGenProvider>("auto");
   const [amazonCount, setAmazonCount] = useState<number>(10);
   const [amazonSizeSpec, setAmazonSizeSpec] = useState("");
   const [amazonBrandName, setAmazonBrandName] = useState("");
@@ -271,6 +273,7 @@ export default function Generate() {
         style: style || undefined,
         category: category || undefined,
         count: batchCount,
+        imageProvider,
       });
       return;
     }
@@ -283,6 +286,7 @@ export default function Generate() {
         sizeId: sizeId || undefined,
         targetMarket: targetMarket || undefined,
         generateSeamless,
+        imageProvider,
       });
     } else {
       batchMutation.mutate({
@@ -295,6 +299,7 @@ export default function Generate() {
         targetMarket: targetMarket || undefined,
         outputMode,
         generateSeamless,
+        imageProvider,
       });
     }
   };
@@ -343,6 +348,28 @@ export default function Generate() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5">生图模型</Label>
+                <Select
+                  value={imageProvider}
+                  onValueChange={(v) => setImageProvider(v as ImageGenProvider)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IMAGE_GEN_PROVIDERS.map((id) => (
+                      <SelectItem key={id} value={id}>
+                        {IMAGE_GEN_PROVIDER_LABELS[id]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  文生图与参考图生图均使用此处选择；自动模式为 Gemini 优先，失败再 SiliconFlow。OpenAI 需在服务器配置 OPENAI_API_KEY，可选 OPENAI_IMAGE_MODEL（默认 gpt-image-2）。
+                </p>
+              </div>
+
               {/* Prompt */}
               <div className="space-y-2">
                 <Label htmlFor="prompt">图案描述</Label>

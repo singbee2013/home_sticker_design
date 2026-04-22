@@ -11,6 +11,7 @@ import {
   DRONE_PHOTOREAL_QUALITY_SUFFIX,
   getDroneModelLockClause,
   generateProductCode, type TemplateCategory, type OutputMode,
+  IMAGE_GEN_PROVIDERS, type ImageGenProvider,
 } from "@shared/types";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -519,6 +520,7 @@ export const appRouter = router({
         referenceImageUrl: z.string().optional(),
         targetMarket: z.string().optional(),
         generateSeamless: z.boolean().optional(),
+        imageProvider: z.enum(IMAGE_GEN_PROVIDERS).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const stylePreset = STYLE_PRESETS.find(s => s.id === input.style);
@@ -551,6 +553,9 @@ export const appRouter = router({
           if (input.referenceImageUrl) {
             genOptions.originalImages = [{ url: input.referenceImageUrl, mimeType: "image/png" }];
           }
+          if (input.imageProvider && input.imageProvider !== "auto") {
+            genOptions.provider = input.imageProvider;
+          }
 
           const { url } = await generateImage(genOptions);
           if (!url) throw new Error("Image generation returned no URL");
@@ -563,6 +568,9 @@ export const appRouter = router({
               const tileResult = await generateImage({
                 prompt: tilePrompt,
                 originalImages: [{ url, mimeType: "image/png" }],
+                ...(input.imageProvider && input.imageProvider !== "auto"
+                  ? { provider: input.imageProvider }
+                  : {}),
               });
               tileImageUrl = tileResult.url ?? null;
             } catch {
@@ -596,6 +604,7 @@ export const appRouter = router({
         referenceImageUrl: z.string().optional(),
         targetMarket: z.string().optional(),
         generateSeamless: z.boolean().optional(),
+        imageProvider: z.enum(IMAGE_GEN_PROVIDERS).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { id: taskId } = await createGenerateTask({
@@ -688,6 +697,7 @@ export const appRouter = router({
         category: z.enum(allCategories).optional(),
         count: z.number().min(1).max(10).default(3),
         similarity: z.number().min(50).max(99).default(75),
+        imageProvider: z.enum(IMAGE_GEN_PROVIDERS).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         // Upload reference image to OSS
@@ -777,6 +787,9 @@ export const appRouter = router({
               originalImages: [{ url: referenceUrl, mimeType: "image/png" }],
               ipAdapterScale: ipScale,
               pureReferenceMode: !hasTextInput,
+              ...(input.imageProvider && input.imageProvider !== "auto"
+                ? { provider: input.imageProvider }
+                : {}),
             });
 
             if (!url) throw new Error("No URL returned");
@@ -1595,11 +1608,19 @@ async function processAmazonListingGeneration(
         };
         const { url: sceneUrl } = await generateImage(genOptions);
         if (!sceneUrl) throw new Error("No scene URL returned");
-        if (isWallDecalCategory(input.category)) {
-          finalImageUrl = await composeWallpaperToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt);
-        } else {
-          finalImageUrl = await composeProductIntoScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, input.category);
-        }
+        /**
+         * For Amazon listing compositing, users upload a white-background product image
+         * and expect realistic "single product on wall" placement with correct proportions.
+         * The old wallpaper tiling path often looked wrong (full-wall pattern blocks).
+         * Use the product compositing path for all categories to preserve product ratio.
+         */
+        finalImageUrl = await composeProductIntoScene(
+          sceneUrl,
+          productCutoutBuffer,
+          slot,
+          input.sizeSpec,
+          input.category
+        );
       }
 
       await updatePattern(patternId, { imageUrl: finalImageUrl, status: "completed" });
@@ -1638,6 +1659,7 @@ async function processBatchGeneration(
     sizeId?: string;
     outputMode?: string;
     referenceImageUrl?: string;
+    imageProvider?: ImageGenProvider;
   }
 ) {
   const stylePreset = STYLE_PRESETS.find(s => s.id === input.style);
@@ -1685,6 +1707,9 @@ async function processBatchGeneration(
       if (input.referenceImageUrl) {
         genOptions.originalImages = [{ url: input.referenceImageUrl, mimeType: "image/png" }];
       }
+      if (input.imageProvider && input.imageProvider !== "auto") {
+        genOptions.provider = input.imageProvider;
+      }
 
       const { url } = await generateImage(genOptions);
       if (!url) throw new Error("No URL returned");
@@ -1696,6 +1721,9 @@ async function processBatchGeneration(
           const tileResult = await generateImage({
             prompt: `Create a 2x2 tiled repeat of this decorative pattern, showing seamless repetition in a grid layout.`,
             originalImages: [{ url, mimeType: "image/png" }],
+            ...(input.imageProvider && input.imageProvider !== "auto"
+              ? { provider: input.imageProvider }
+              : {}),
           });
           tileImageUrl = tileResult.url ?? null;
         } catch { /* optional */ }

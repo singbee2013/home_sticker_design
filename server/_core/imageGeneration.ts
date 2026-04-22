@@ -10,6 +10,7 @@
  *      for direct visual style conditioning (scale=0.6)
  *   3. Combine both for maximum style fidelity
  */
+import type { ImageGenProvider } from "@shared/types";
 import { ENV } from "./env";
 import { storagePut } from "../storage";
 import { siliconFlowQueue, withRetry } from "./apiQueue";
@@ -58,6 +59,11 @@ export type GenerateImageOptions = {
    * If provided, generateImage will reuse this text and skip repeated VL calls.
    */
   referenceStyleDescriptors?: string;
+  /**
+   * Which upstream generates the image.
+   * `auto` (default): try Gemini when configured, then Silicon Flow.
+   */
+  provider?: ImageGenProvider;
 };
 
 export type GenerateImageResponse = {
@@ -228,6 +234,81 @@ async function generateWithGeminiFlashImage(
   throw new Error("Gemini returned no image bytes");
 }
 
+async function parseOpenAIImagePayload(data: unknown): Promise<{ data: string; mimeType: string }> {
+  const d = data as {
+    data?: Array<{ b64_json?: string; url?: string }>;
+    error?: { message?: string };
+  };
+  if (d.error?.message) {
+    throw new Error(`OpenAI Images: ${d.error.message}`);
+  }
+  const first = d.data?.[0];
+  if (!first) throw new Error("OpenAI returned no image");
+  if (first.b64_json) {
+    return { data: first.b64_json, mimeType: "image/png" };
+  }
+  if (first.url) {
+    return fetchImageAsBase64(first.url);
+  }
+  throw new Error("OpenAI returned neither b64_json nor url");
+}
+
+/**
+ * OpenAI Image API — text-to-image (`generations`) or reference-guided (`edits`).
+ */
+async function generateWithOpenAIImage(
+  prompt: string,
+  referenceImageUrl?: string
+): Promise<{ data: string; mimeType: string }> {
+  if (!ENV.openaiApiKey) {
+    throw new Error("OPENAI_API_KEY is not configured.");
+  }
+  const model = ENV.openaiImageModel;
+
+  if (referenceImageUrl) {
+    const refBuf = await downloadImage(referenceImageUrl);
+    const form = new FormData();
+    form.append("model", model);
+    form.append("prompt", prompt);
+    form.append(
+      "image[]",
+      new Blob([new Uint8Array(refBuf)], { type: "image/png" }),
+      "reference.png",
+    );
+
+    const response = await fetchWithTimeout("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${ENV.openaiApiKey}`,
+      },
+      body: form,
+    }, 120000);
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`OpenAI image edit failed (${response.status}): ${detail}`);
+    }
+    const json = await response.json();
+    return parseOpenAIImagePayload(json);
+  }
+
+  const response = await fetchWithTimeout("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${ENV.openaiApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model, prompt }),
+  }, 120000);
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`OpenAI image generation failed (${response.status}): ${detail}`);
+  }
+  const json = await response.json();
+  return parseOpenAIImagePayload(json);
+}
+
 /**
  * Use Silicon Flow's Qwen2-VL (vision language model) to analyze the reference
  * image and extract a structured SD-style prompt for accurate style replication.
@@ -327,6 +408,8 @@ const NEGATIVE_PATTERN = [
   "blurry, low quality, noisy, artifacts, compression artifacts",
   "smooth, glossy, plastic, airbrushed, over-processed, digital art, CGI, 3D render",
   "flat colors, gradient mesh, vector art, clip art",
+  // Prevent visible tiling guides that users often report as "lines"
+  "grid lines, seam lines, stitch lines, border lines, panel divider lines, tile boundaries, checkerboard",
   "soft focus, out of focus, unfocused, hazy, foggy",
   "text, watermark, logo, signature, border, frame",
   "ugly, deformed, distorted, disfigured",
@@ -667,8 +750,10 @@ async function ensurePublicUrl(ref: {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
-  if (!ENV.geminiApiKey && !ENV.siliconflowApiKey) {
-    throw new Error("No image provider configured. Set GEMINI_API_KEY or SILICONFLOW_API_KEY.");
+  if (!ENV.geminiApiKey && !ENV.siliconflowApiKey && !ENV.openaiApiKey) {
+    throw new Error(
+      "No image provider configured. Set GEMINI_API_KEY, SILICONFLOW_API_KEY, and/or OPENAI_API_KEY.",
+    );
   }
 
   let finalPrompt = options.prompt;
@@ -693,18 +778,11 @@ export async function generateImage(
         backgroundNegative = buildBackgroundNegative(styleDescriptors);
 
         if (pureRef) {
-          // ── Tier 1: Pure reference ───────────────────────────────────────────
-          // Key technique: background term is placed at BOTH start AND near end
-          // of the prompt.  CLIP attention is highest at position 0 and at the
-          // end of the token sequence — repeating the background term in both
-          // positions gives maximum weight to background color fidelity,
-          // counteracting IP-Adapter's unintended color bleeding.
           const body = options.prompt ? `${styleDescriptors}, ${options.prompt}` : styleDescriptors;
           finalPrompt = bgTerm
             ? `${bgTerm}, ${body}, ${bgTerm}`.replace(/,\s*,/g, ",")
             : body;
         } else {
-          // ── Tier 2: Mixed — VL descriptors + user text ───────────────────────
           finalPrompt = `${styleDescriptors}, ${options.prompt}`.replace(/,\s*$/, "");
         }
         logger.debug("[ImageGen] Prompt built", {
@@ -716,16 +794,101 @@ export async function generateImage(
     }
   }
 
-  // Step 3: Preferred provider — Gemini 2.5 Flash Image
-  // Keep Silicon Flow fallback for reliability / compatibility.
+  const provider: ImageGenProvider = options.provider ?? "auto";
+
+  const putGeminiResult = async (geminiImage: { data: string; mimeType: string }) => {
+    const buffer = Buffer.from(geminiImage.data, "base64");
+    const normalizedMime = geminiImage.mimeType || "image/png";
+    const ext = normalizedMime.includes("jpeg") ? "jpg" : "png";
+    const { url } = await storagePut(`generated/${Date.now()}.${ext}`, buffer, normalizedMime);
+    return { url };
+  };
+
+  const finishSiliconFlow = async (): Promise<GenerateImageResponse> => {
+    if (!ENV.siliconflowApiKey) {
+      throw new Error("SILICONFLOW_API_KEY is not configured.");
+    }
+    const ipScale = options.ipAdapterScale ?? 0.6;
+    const mode = options.mode ?? "pattern";
+    const kolorsExtraNeg =
+      [backgroundNegative, options.additionalNegativePrompt].filter(Boolean).join(", ") || undefined;
+    let generatedUrl: string;
+
+    if (referenceUrl) {
+      generatedUrl = await generateWithKolors(
+        finalPrompt,
+        referenceUrl,
+        ipScale,
+        mode,
+        kolorsExtraNeg,
+        options.overrideGuidanceScale,
+        options.overrideInferenceSteps,
+      );
+    } else if (options.forceKolors) {
+      generatedUrl = await generateWithKolors(
+        finalPrompt,
+        undefined,
+        ipScale,
+        mode,
+        kolorsExtraNeg,
+        options.overrideGuidanceScale ?? (mode === "scene" ? 9.0 : undefined),
+        options.overrideInferenceSteps,
+      );
+    } else {
+      try {
+        generatedUrl = await generateWithFlux(finalPrompt, mode);
+      } catch (fluxErr) {
+        const msg = (fluxErr as Error)?.message ?? String(fluxErr);
+        const status = (fluxErr as { status?: number }).status;
+        const noFlux =
+          status === 403 ||
+          status === 404 ||
+          status === 400 ||
+          /model.*not.*available|disabled|not found|FLUX generation failed/i.test(msg);
+        if (!noFlux) throw fluxErr;
+        logger.warn("[ImageGen] FLUX text-to-image unavailable, using Kolors", {
+          status,
+          preview: msg.slice(0, 200),
+        });
+        generatedUrl = await generateWithKolors(
+          finalPrompt,
+          undefined,
+          ipScale,
+          mode,
+          kolorsExtraNeg,
+          options.overrideGuidanceScale,
+          options.overrideInferenceSteps,
+        );
+      }
+    }
+
+    const buffer = await downloadImage(generatedUrl);
+    const { url } = await storagePut(`generated/${Date.now()}.png`, buffer, "image/png");
+    return { url };
+  };
+
+  if (provider === "gemini") {
+    if (!ENV.geminiApiKey) {
+      throw new Error("GEMINI_API_KEY is not configured.");
+    }
+    const geminiImage = await generateWithGeminiFlashImage(finalPrompt, referenceUrl);
+    return putGeminiResult(geminiImage);
+  }
+
+  if (provider === "openai") {
+    const openaiImage = await generateWithOpenAIImage(finalPrompt, referenceUrl);
+    return putGeminiResult(openaiImage);
+  }
+
+  if (provider === "siliconflow") {
+    return finishSiliconFlow();
+  }
+
+  // auto — Gemini first, then Silicon Flow
   if (ENV.geminiApiKey) {
     try {
       const geminiImage = await generateWithGeminiFlashImage(finalPrompt, referenceUrl);
-      const buffer = Buffer.from(geminiImage.data, "base64");
-      const normalizedMime = geminiImage.mimeType || "image/png";
-      const ext = normalizedMime.includes("jpeg") ? "jpg" : "png";
-      const { url } = await storagePut(`generated/${Date.now()}.${ext}`, buffer, normalizedMime);
-      return { url };
+      return putGeminiResult(geminiImage);
     } catch (err) {
       logger.warn("[ImageGen] Gemini image generation failed, fallback to SiliconFlow", {
         message: (err as Error).message.slice(0, 300),
@@ -734,68 +897,11 @@ export async function generateImage(
   }
 
   if (!ENV.siliconflowApiKey) {
-    throw new Error("Gemini image generation failed and SILICONFLOW_API_KEY is not configured.");
-  }
-
-  // Step 4: Fallback provider — Silicon Flow
-  // — With reference image → Kolors (IP-Adapter on Silicon Flow)
-  // — Text-only → prefer FLUX.1-dev; many accounts don't have FLUX enabled → fall back to Kolors
-  // — forceKolors → always Kolors (supports negative_prompt for e.g. drone topology)
-  const ipScale = options.ipAdapterScale ?? 0.6;
-  const mode = options.mode ?? "pattern";
-  const kolorsExtraNeg = [backgroundNegative, options.additionalNegativePrompt].filter(Boolean).join(", ") || undefined;
-  let generatedUrl: string;
-
-  if (referenceUrl) {
-    generatedUrl = await generateWithKolors(
-      finalPrompt, referenceUrl, ipScale,
-      mode,
-      kolorsExtraNeg,
-      options.overrideGuidanceScale,
-      options.overrideInferenceSteps
+    throw new Error(
+      "Gemini image generation failed (or not configured) and SILICONFLOW_API_KEY is not configured.",
     );
-  } else if (options.forceKolors) {
-    generatedUrl = await generateWithKolors(
-      finalPrompt,
-      undefined,
-      ipScale,
-      mode,
-      kolorsExtraNeg,
-      options.overrideGuidanceScale ?? (mode === "scene" ? 9.0 : undefined),
-      options.overrideInferenceSteps
-    );
-  } else {
-    try {
-      generatedUrl = await generateWithFlux(finalPrompt, mode);
-    } catch (fluxErr) {
-      const msg = (fluxErr as Error)?.message ?? String(fluxErr);
-      const status = (fluxErr as { status?: number }).status;
-      const noFlux =
-        status === 403 ||
-        status === 404 ||
-        status === 400 ||
-        /model.*not.*available|disabled|not found|FLUX generation failed/i.test(msg);
-      if (!noFlux) throw fluxErr;
-      logger.warn("[ImageGen] FLUX text-to-image unavailable, using Kolors", {
-        status,
-        preview: msg.slice(0, 200),
-      });
-      generatedUrl = await generateWithKolors(
-        finalPrompt,
-        undefined,
-        ipScale,
-        mode,
-        kolorsExtraNeg,
-        options.overrideGuidanceScale,
-        options.overrideInferenceSteps
-      );
-    }
   }
-
-  // Step 5: Save to OSS and return URL
-  const buffer = await downloadImage(generatedUrl);
-  const { url } = await storagePut(`generated/${Date.now()}.png`, buffer, "image/png");
-  return { url };
+  return finishSiliconFlow();
 }
 
 /** Expose one-time style extraction for multi-image tasks */
