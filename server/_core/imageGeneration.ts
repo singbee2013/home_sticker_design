@@ -70,8 +70,27 @@ export type GenerateImageResponse = {
   url?: string;
 };
 
-// Gemini 2.5 Flash Image (preferred provider)
-const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
+function hasConfiguredKey(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.trim();
+  if (!v) return false;
+  // Common placeholders pasted during setup
+  if (
+    v === "__YOUR_SILICONFLOW_KEY__" ||
+    v === "__OPENAI_KEY__" ||
+    v === "替换成你的新key" ||
+    v.includes("YOUR_") ||
+    v.includes("replace")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+const HAS_GEMINI_KEY = hasConfiguredKey(ENV.geminiApiKey);
+const HAS_OPENAI_KEY = hasConfiguredKey(ENV.openaiApiKey);
+const HAS_SILICONFLOW_KEY = hasConfiguredKey(ENV.siliconflowApiKey);
+
 // Kolors: supports IP-Adapter, used for reference-based pattern generation
 const KOLORS_MODEL = "Kwai-Kolors/Kolors";
 // FLUX.1-dev: dramatically sharper output, used for text-only pattern generation
@@ -171,7 +190,7 @@ async function generateWithGeminiFlashImage(
   prompt: string,
   referenceImageUrl?: string
 ): Promise<{ data: string; mimeType: string }> {
-  if (!ENV.geminiApiKey) {
+  if (!HAS_GEMINI_KEY) {
     throw new Error("GEMINI_API_KEY is not configured.");
   }
 
@@ -187,7 +206,7 @@ async function generateWithGeminiFlashImage(
   }
 
   const response = await fetchWithTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_IMAGE_MODEL}:generateContent?key=${encodeURIComponent(ENV.geminiApiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${ENV.geminiImageModel}:generateContent?key=${encodeURIComponent(ENV.geminiApiKey)}`,
     {
       method: "POST",
       headers: {
@@ -260,7 +279,7 @@ async function generateWithOpenAIImage(
   prompt: string,
   referenceImageUrl?: string
 ): Promise<{ data: string; mimeType: string }> {
-  if (!ENV.openaiApiKey) {
+  if (!HAS_OPENAI_KEY) {
     throw new Error("OPENAI_API_KEY is not configured.");
   }
   const model = ENV.openaiImageModel;
@@ -315,7 +334,7 @@ async function generateWithOpenAIImage(
  * This model is accessible from Chinese servers (no GFW restrictions).
  */
 async function analyzeStyleWithQwenVL(imageUrl: string): Promise<string> {
-  if (!ENV.siliconflowApiKey) return "";
+  if (!HAS_SILICONFLOW_KEY) return "";
 
   try {
     return await siliconFlowQueue.add(async () => {
@@ -670,7 +689,7 @@ async function generateWithFlux(
  * Different from pattern analysis — focuses on room type, furniture, lighting, materials.
  */
 async function analyzeSceneWithQwenVL(imageUrl: string): Promise<string> {
-  if (!ENV.siliconflowApiKey) return "";
+  if (!HAS_SILICONFLOW_KEY) return "";
   try {
     return await siliconFlowQueue.add(async () => {
       const res = await fetchWithTimeout(`${ENV.siliconflowApiBase}/chat/completions`, {
@@ -750,7 +769,7 @@ async function ensurePublicUrl(ref: {
 export async function generateImage(
   options: GenerateImageOptions
 ): Promise<GenerateImageResponse> {
-  if (!ENV.geminiApiKey && !ENV.siliconflowApiKey && !ENV.openaiApiKey) {
+  if (!HAS_GEMINI_KEY && !HAS_SILICONFLOW_KEY && !HAS_OPENAI_KEY) {
     throw new Error(
       "No image provider configured. Set GEMINI_API_KEY, SILICONFLOW_API_KEY, and/or OPENAI_API_KEY.",
     );
@@ -805,7 +824,7 @@ export async function generateImage(
   };
 
   const finishSiliconFlow = async (): Promise<GenerateImageResponse> => {
-    if (!ENV.siliconflowApiKey) {
+    if (!HAS_SILICONFLOW_KEY) {
       throw new Error("SILICONFLOW_API_KEY is not configured.");
     }
     const ipScale = options.ipAdapterScale ?? 0.6;
@@ -868,7 +887,7 @@ export async function generateImage(
   };
 
   if (provider === "gemini") {
-    if (!ENV.geminiApiKey) {
+    if (!HAS_GEMINI_KEY) {
       throw new Error("GEMINI_API_KEY is not configured.");
     }
     const geminiImage = await generateWithGeminiFlashImage(finalPrompt, referenceUrl);
@@ -885,7 +904,7 @@ export async function generateImage(
   }
 
   // auto — Gemini first, then Silicon Flow
-  if (ENV.geminiApiKey) {
+  if (HAS_GEMINI_KEY) {
     try {
       const geminiImage = await generateWithGeminiFlashImage(finalPrompt, referenceUrl);
       return putGeminiResult(geminiImage);
@@ -896,7 +915,7 @@ export async function generateImage(
     }
   }
 
-  if (!ENV.siliconflowApiKey) {
+  if (!HAS_SILICONFLOW_KEY) {
     throw new Error(
       "Gemini image generation failed (or not configured) and SILICONFLOW_API_KEY is not configured.",
     );
@@ -923,7 +942,7 @@ export async function generateCompositeImage(options: {
   patternImageUrl: string;
   categoryLabel: string;
 }): Promise<{ url: string }> {
-  if (!ENV.geminiApiKey && !ENV.siliconflowApiKey) {
+  if (!HAS_GEMINI_KEY && !HAS_SILICONFLOW_KEY) {
     throw new Error("No image provider configured. Set GEMINI_API_KEY or SILICONFLOW_API_KEY.");
   }
 
@@ -955,7 +974,7 @@ export async function generateCompositeImage(options: {
   });
 
   // Prefer Gemini for scene mockups; fallback to Kolors when needed.
-  if (ENV.geminiApiKey) {
+  if (HAS_GEMINI_KEY) {
     try {
       const geminiImage = await generateWithGeminiFlashImage(compositePrompt, options.patternImageUrl);
       const buffer = Buffer.from(geminiImage.data, "base64");
@@ -970,7 +989,7 @@ export async function generateCompositeImage(options: {
     }
   }
 
-  if (!ENV.siliconflowApiKey) {
+  if (!HAS_SILICONFLOW_KEY) {
     throw new Error("Gemini mockup generation failed and SILICONFLOW_API_KEY is not configured.");
   }
 

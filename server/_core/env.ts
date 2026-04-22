@@ -10,6 +10,8 @@ export const ENV = {
   openaiImageModel: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2",
   // Google Gemini (text/vision + 2.5 Flash Image generation)
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  /** Override image model if your key does not support default preview model */
+  geminiImageModel: process.env.GEMINI_IMAGE_MODEL ?? "gemini-2.5-flash-image-preview",
   // Silicon Flow (FLUX image generation, supports Alipay)
   siliconflowApiKey: process.env.SILICONFLOW_API_KEY ?? "",
   /** Base URL without trailing slash, e.g. https://api.siliconflow.cn/v1 */
