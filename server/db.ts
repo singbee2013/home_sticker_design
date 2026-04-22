@@ -8,6 +8,7 @@ import {
   generateTasks, InsertGenerateTask,
   productVideos, InsertProductVideo,
   smsCodes,
+  emailResetCodes,
   favorites, InsertFavorite,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -107,6 +108,46 @@ export async function verifySmsCode(phone: string, code: string): Promise<boolea
   if (rows.length === 0) return false;
   // Mark as used
   await db.update(smsCodes).set({ used: 1 }).where(eq(smsCodes.id, rows[0].id));
+  return true;
+}
+
+export async function saveEmailResetCode(email: string, code: string, ttlSeconds = 600): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+  await db.insert(emailResetCodes).values({ email, code, expiresAt, used: 0 });
+}
+
+export async function verifyEmailResetCode(email: string, code: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const now = new Date();
+  const rows = await db
+    .select()
+    .from(emailResetCodes)
+    .where(
+      and(
+        eq(emailResetCodes.email, email),
+        eq(emailResetCodes.code, code),
+        eq(emailResetCodes.used, 0),
+        sql`${emailResetCodes.expiresAt} > ${now}`,
+      )
+    )
+    .limit(1);
+  if (rows.length === 0) return false;
+  await db.update(emailResetCodes).set({ used: 1 }).where(eq(emailResetCodes.id, rows[0].id));
+  return true;
+}
+
+export async function updateUserPasswordByEmail(email: string, passwordHash: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  if (result.length === 0) return false;
+  await db
+    .update(users)
+    .set({ passwordHash, loginMethod: "email", updatedAt: new Date() })
+    .where(eq(users.email, email));
   return true;
 }
 

@@ -72,6 +72,11 @@ async function runStartupMigrations() {
       "CREATE TABLE IF NOT EXISTS `favorites` (`id` int AUTO_INCREMENT NOT NULL, `userId` int NOT NULL, `itemType` varchar(16) NOT NULL, `itemId` int NOT NULL, `imageUrl` text NOT NULL, `label` varchar(255), `createdAt` timestamp NOT NULL DEFAULT (now()), PRIMARY KEY(`id`), INDEX `favorites_userId_idx` (`userId`), UNIQUE INDEX `favorites_unique` (`userId`, `itemType`, `itemId`))",
       "create favorites"
     );
+    // emailResetCodes table
+    await safe(
+      "CREATE TABLE IF NOT EXISTS `emailResetCodes` (`id` int AUTO_INCREMENT NOT NULL, `email` varchar(320) NOT NULL, `code` varchar(8) NOT NULL, `expiresAt` timestamp NOT NULL, `used` tinyint NOT NULL DEFAULT 0, `createdAt` timestamp NOT NULL DEFAULT (now()), PRIMARY KEY(`id`), INDEX `emailResetCodes_email_idx` (`email`))",
+      "create emailResetCodes"
+    );
 
     logger.info("[DB] Startup migrations complete.");
   } catch (e) {

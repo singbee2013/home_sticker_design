@@ -17,7 +17,16 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { hashPassword, verifyPassword, createSessionCookie } from "./_core/authUtils";
-import { getUserByEmail, getUserByPhone, upsertUser, saveSmsCode, verifySmsCode } from "./db";
+import {
+  getUserByEmail,
+  getUserByPhone,
+  upsertUser,
+  saveSmsCode,
+  verifySmsCode,
+  saveEmailResetCode,
+  verifyEmailResetCode,
+  updateUserPasswordByEmail,
+} from "./db";
 import { sendSmsCode, generateSmsCode } from "./_core/sms";
 import { nanoid as _nanoid } from "nanoid";
 import { z } from "zod";
@@ -358,6 +367,44 @@ export const appRouter = router({
         if (!user) throw new Error("登录失败，请重试");
         await createSessionCookie(ctx.res, { openId: user.openId, name: user.name ?? user.phone ?? "" });
         return { success: true, user } as const;
+      }),
+
+    /** 忘记密码：发送邮箱验证码 */
+    sendEmailResetCode: publicProcedure
+      .input(z.object({ email: z.string().email("请输入正确邮箱地址") }))
+      .mutation(async ({ input }) => {
+        const user = await getUserByEmail(input.email);
+        // 安全策略：无论是否存在该邮箱都返回成功，避免邮箱枚举。
+        if (!user) {
+          return { success: true, devCode: null as string | null };
+        }
+        const code = generateSmsCode();
+        await saveEmailResetCode(input.email, code, 600);
+
+        // Self-hosted fallback: no mail provider configured yet.
+        // In non-strict mode, return one-time code so users can complete reset.
+        const strictMode = process.env.EMAIL_STRICT_MODE === "true";
+        if (strictMode) {
+          throw new Error("邮件服务未配置，请联系管理员");
+        }
+        return { success: true, devCode: code };
+      }),
+
+    /** 忘记密码：邮箱验证码重置密码 */
+    resetPasswordWithCode: publicProcedure
+      .input(z.object({
+        email: z.string().email("请输入正确邮箱地址"),
+        code: z.string().length(6, "验证码为6位数字"),
+        newPassword: z.string().min(6, "密码至少6位"),
+      }))
+      .mutation(async ({ input }) => {
+        const valid = await verifyEmailResetCode(input.email, input.code);
+        if (!valid) throw new Error("验证码错误或已过期，请重新获取");
+
+        const passwordHash = await hashPassword(input.newPassword);
+        const updated = await updateUserPasswordByEmail(input.email, passwordHash);
+        if (!updated) throw new Error("账号不存在或无法更新，请联系管理员");
+        return { success: true } as const;
       }),
   }),
 

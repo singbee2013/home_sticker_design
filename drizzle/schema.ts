@@ -32,6 +32,21 @@ export const smsCodes = mysqlTable("smsCodes", {
 export type SmsCode = typeof smsCodes.$inferSelect;
 export type InsertSmsCode = typeof smsCodes.$inferInsert;
 
+/**
+ * 邮箱重置密码验证码（用于忘记密码）
+ */
+export const emailResetCodes = mysqlTable("emailResetCodes", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  code: varchar("code", { length: 8 }).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  used: tinyint("used").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type EmailResetCode = typeof emailResetCodes.$inferSelect;
+export type InsertEmailResetCode = typeof emailResetCodes.$inferInsert;
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
