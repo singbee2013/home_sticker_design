@@ -282,7 +282,12 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
 
     login: publicProcedure
-      .input(z.object({ email: z.string().email(), password: z.string().min(1) }))
+      .input(
+        z.object({
+          email: z.string().trim().toLowerCase().pipe(z.string().email()),
+          password: z.string().min(1),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const user = await getUserByEmail(input.email);
         if (!user || !user.passwordHash) {

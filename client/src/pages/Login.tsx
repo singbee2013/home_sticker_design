@@ -10,7 +10,8 @@ import { toast } from "sonner";
 
 export default function Login() {
   const utils = trpc.useUtils();
-  const [activeTab, setActiveTab] = useState<"phone" | "login" | "register" | "forgot">("phone");
+  /** Default 邮箱登录：避免用户未切换 Tab 却在域名下误以为「邮箱密码登不上」。 */
+  const [activeTab, setActiveTab] = useState<"phone" | "login" | "register" | "forgot">("login");
 
   // Email login
   const [loginEmail, setLoginEmail] = useState("");
@@ -118,8 +119,9 @@ export default function Login() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail || !loginPassword) { toast.error("请填写邮箱和密码"); return; }
-    loginMutation.mutate({ email: loginEmail, password: loginPassword });
+    const email = loginEmail.trim();
+    if (!email || !loginPassword) { toast.error("请填写邮箱和密码"); return; }
+    loginMutation.mutate({ email, password: loginPassword });
   };
 
   const handleRegister = (e: React.FormEvent) => {

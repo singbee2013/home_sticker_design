@@ -125,8 +125,14 @@ export async function verifySmsCode(phone: string, code: string): Promise<boolea
 export async function saveEmailResetCode(email: string, code: string, ttlSeconds = 600): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const norm = normalizeEmail(email);
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-  await db.insert(emailResetCodes).values({ email: normalizeEmail(email), code, expiresAt, used: 0 });
+  // Keep only one active code per email to avoid "latest code looks expired" confusion.
+  await db
+    .update(emailResetCodes)
+    .set({ used: 1 })
+    .where(and(sql`LOWER(TRIM(${emailResetCodes.email})) = ${norm}`, eq(emailResetCodes.used, 0)));
+  await db.insert(emailResetCodes).values({ email: norm, code, expiresAt, used: 0 });
 }
 
 export async function verifyEmailResetCode(email: string, code: string): Promise<boolean> {
@@ -145,6 +151,7 @@ export async function verifyEmailResetCode(email: string, code: string): Promise
         sql`${emailResetCodes.expiresAt} > ${now}`,
       )
     )
+    .orderBy(desc(emailResetCodes.id))
     .limit(1);
   if (rows.length === 0) return false;
   await db.update(emailResetCodes).set({ used: 1 }).where(eq(emailResetCodes.id, rows[0].id));
