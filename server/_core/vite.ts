@@ -58,10 +58,19 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  const staticMw = express.static(distPath);
+  // Never serve files under /api/* from disk (avoids accidental public/api/* shadowing API routes).
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/")) return next();
+    staticMw(req, res, next);
+  });
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // SPA fallback — but never return index.html for unknown /api/* (those must be JSON or real handlers).
+  app.use("*", (req, res) => {
+    if (req.path.startsWith("/api/")) {
+      res.status(404).type("application/json").json({ error: "not_found", path: req.path });
+      return;
+    }
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

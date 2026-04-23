@@ -29,6 +29,11 @@ export async function getDb() {
 
 // ========== User Helpers ==========
 
+/** Canonical form for lookups and new rows (RFC-ish; avoids autofill/space quirks). */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
@@ -42,7 +47,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     const assignNullable = (field: TextField) => {
       const value = user[field];
       if (value === undefined) return;
-      const normalized = value ?? null;
+      const normalized =
+        field === "email" && typeof value === "string" ? normalizeEmail(value) : (value ?? null);
       values[field] = normalized;
       updateSet[field] = normalized;
     };
@@ -69,7 +75,12 @@ export async function getUserByOpenId(openId: string) {
 export async function getUserByEmail(email: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const norm = normalizeEmail(email);
+  const result = await db
+    .select()
+    .from(users)
+    .where(sql`LOWER(TRIM(${users.email})) = ${norm}`)
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -115,19 +126,20 @@ export async function saveEmailResetCode(email: string, code: string, ttlSeconds
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-  await db.insert(emailResetCodes).values({ email, code, expiresAt, used: 0 });
+  await db.insert(emailResetCodes).values({ email: normalizeEmail(email), code, expiresAt, used: 0 });
 }
 
 export async function verifyEmailResetCode(email: string, code: string): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
   const now = new Date();
+  const norm = normalizeEmail(email);
   const rows = await db
     .select()
     .from(emailResetCodes)
     .where(
       and(
-        eq(emailResetCodes.email, email),
+        sql`LOWER(TRIM(${emailResetCodes.email})) = ${norm}`,
         eq(emailResetCodes.code, code),
         eq(emailResetCodes.used, 0),
         sql`${emailResetCodes.expiresAt} > ${now}`,
@@ -142,12 +154,17 @@ export async function verifyEmailResetCode(email: string, code: string): Promise
 export async function updateUserPasswordByEmail(email: string, passwordHash: string): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const norm = normalizeEmail(email);
+  const result = await db
+    .select()
+    .from(users)
+    .where(sql`LOWER(TRIM(${users.email})) = ${norm}`)
+    .limit(1);
   if (result.length === 0) return false;
   await db
     .update(users)
     .set({ passwordHash, loginMethod: "email", updatedAt: new Date() })
-    .where(eq(users.email, email));
+    .where(sql`LOWER(TRIM(${users.email})) = ${norm}`);
   return true;
 }
 

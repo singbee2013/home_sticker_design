@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { createHash } from "crypto";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -148,6 +149,27 @@ async function startServer() {
       res.status(500).send(`Proxy error: ${e.message}`);
     }
   });
+
+  /**
+   * Same-process / same-DB fingerprint for ops debugging.
+   * Prefer `/api/decorai-instance` in the browser: Nginx often proxies only `/api/*` to Node;
+   * paths like `/__decorai-instance` may never reach this app (static CDN returns index.html).
+   */
+  const sendInstanceInfo: express.RequestHandler = (_req, res) => {
+    const dbUrl = process.env.DATABASE_URL || "";
+    const dbFingerprint = dbUrl
+      ? createHash("sha256").update(dbUrl).digest("hex").slice(0, 12)
+      : null;
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      dbFingerprint,
+      instanceLabel: process.env.INSTANCE_LABEL ?? null,
+      nodeEnv: process.env.NODE_ENV ?? null,
+    });
+  };
+  app.get("/api/instance", sendInstanceInfo);
+  app.get("/api/decorai-instance", sendInstanceInfo);
+  app.get("/__decorai-instance", sendInstanceInfo);
 
   // tRPC API
   app.use(
