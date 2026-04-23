@@ -41,8 +41,9 @@ export async function storagePut(
       Key: key,
       Body: body,
       ContentType: contentType,
-      // Allow public read — make sure your OSS Bucket policy allows this
-      ACL: "public-read",
+      // Do not force object ACL here.
+      // Many OSS buckets have Object ACL disabled (Bucket owner enforced),
+      // and setting ACL causes AccessDenied: "no right to access this object because of bucket acl".
     })
   );
 
