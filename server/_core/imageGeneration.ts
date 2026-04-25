@@ -329,6 +329,69 @@ async function generateWithOpenAIImage(
 }
 
 /**
+ * Photo refinement pass for existing images.
+ * Uses image-editing upstreams (OpenAI Images edits / Gemini Flash Image with reference)
+ * to improve realism while keeping composition and decal geometry intact.
+ */
+export async function refinePhotoComposite(options: {
+  baseImageUrl: string;
+  prompt: string;
+  provider?: ImageGenProvider;
+}): Promise<{ url: string }> {
+  const provider: ImageGenProvider = options.provider ?? "auto";
+
+  const putResult = async (img: { data: string; mimeType: string }) => {
+    const buffer = Buffer.from(img.data, "base64");
+    const normalizedMime = img.mimeType || "image/png";
+    const ext = normalizedMime.includes("jpeg") ? "jpg" : "png";
+    const { url } = await storagePut(`refined/${Date.now()}.${ext}`, buffer, normalizedMime);
+    return { url };
+  };
+
+  // Prefer OpenAI edits when configured: strongest at "keep composition, refine realism".
+  if (provider === "openai" || provider === "auto") {
+    if (HAS_OPENAI_KEY) {
+      try {
+        const out = await generateWithOpenAIImage(options.prompt, options.baseImageUrl);
+        return putResult(out);
+      } catch (err) {
+        if (provider === "openai") throw err;
+        logger.warn("[Refine] OpenAI edit failed, fallback", { message: (err as Error).message.slice(0, 200) });
+      }
+    } else if (provider === "openai") {
+      throw new Error("OPENAI_API_KEY is not configured.");
+    }
+  }
+
+  // Gemini reference-guided generation as fallback (best-effort).
+  if (provider === "gemini" || provider === "auto") {
+    if (!HAS_GEMINI_KEY) {
+      if (provider === "gemini") throw new Error("GEMINI_API_KEY is not configured.");
+    } else {
+      const out = await generateWithGeminiFlashImage(options.prompt, options.baseImageUrl);
+      return putResult(out);
+    }
+  }
+
+  // Last-resort: SiliconFlow image_prompt (may drift, but better than nothing).
+  if (!HAS_SILICONFLOW_KEY) {
+    throw new Error("No refine provider configured (need OPENAI_API_KEY, GEMINI_API_KEY, or SILICONFLOW_API_KEY).");
+  }
+  const generatedUrl = await generateWithKolors(
+    options.prompt,
+    options.baseImageUrl,
+    0.70,
+    "scene",
+    undefined,
+    8.8,
+    30,
+  );
+  const buffer = await downloadImage(generatedUrl);
+  const { url } = await storagePut(`refined/${Date.now()}.png`, buffer, "image/png");
+  return { url };
+}
+
+/**
  * Use Silicon Flow's Qwen2-VL (vision language model) to analyze the reference
  * image and extract a structured SD-style prompt for accurate style replication.
  * This model is accessible from Chinese servers (no GFW restrictions).

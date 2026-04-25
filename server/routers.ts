@@ -34,6 +34,7 @@ import { z } from "zod";
 import {
   generateImage,
   generateCompositeImage,
+  refinePhotoComposite,
   type GenerateImageOptions,
 } from "./_core/imageGeneration";
 import { generateVideo } from "./_core/videoGeneration";
@@ -1777,13 +1778,29 @@ async function processAmazonListingGeneration(
         if (!sceneUrl) throw new Error("No scene URL returned");
         // For wall/floor decor categories, use AI composite to get real perspective + lighting.
         if (isWallDecalCategory(input.category) || input.category === "floor") {
-          const categoryLabel = CATEGORY_LABELS[input.category as TemplateCategory] || input.category;
-          const { url } = await generateCompositeImage({
-            sceneImageUrl: sceneUrl,
-            patternImageUrl: cutoutUrl,
-            categoryLabel,
-          });
-          finalImageUrl = url;
+          // Phase 1: deterministic composite (guarantee decal present; no perspective warp).
+          const baseUrl =
+            input.category === "floor"
+              ? await composeFloorToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt)
+              : await composeWallpaperToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt);
+
+          // Phase 2: photo refinement (make it look like real decal behind objects).
+          // Keep composition unchanged; only improve material integration + occlusion cues.
+          try {
+            const refinePrompt = [
+              "You are retouching a real interior photo for an Amazon listing.",
+              "Keep the exact same camera angle, room layout, furniture, objects, and composition. Do not move or add/remove objects.",
+              "The wall decal/wallpaper is already applied; keep its design geometry unwarped and front-facing (no perspective distortion, no skew).",
+              "Make it look physically real: subtle contact shadow on the wall, correct reflections, consistent lighting, natural texture.",
+              "Foreground objects must naturally occlude the decal where they overlap (shelves, utensils, plants, appliances stay in front).",
+              "No CGI, no illustration, no AI artifacts, no extra text or watermark.",
+            ].join(" ");
+            const refined = await refinePhotoComposite({ baseImageUrl: baseUrl, prompt: refinePrompt });
+            finalImageUrl = refined.url;
+          } catch {
+            // If refine fails, at least return the guaranteed composite.
+            finalImageUrl = baseUrl;
+          }
 
           // Add dimension overlay on top of the AI-composited result when needed.
           if (slot === "dimension") {
