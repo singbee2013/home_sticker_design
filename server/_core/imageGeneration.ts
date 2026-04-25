@@ -959,12 +959,19 @@ export async function generateCompositeImage(options: {
     ? `the decorative surface features: ${patternDesc}`
     : `a decorative pattern applied seamlessly to the surface`;
 
+  // For ecommerce listing mockups, users expect "as-photographed" realism:
+  // - decal/wallpaper should lie FLAT on the wall (no perspective warp)
+  // - foreground objects should naturally occlude the wall decal
+  // - lighting/shadows should match the scene
   const compositePrompt = [
     sceneCtx,
     patternCtx,
-    "the pattern is perfectly applied to the surface with correct perspective, shadows and material integration",
-    "photorealistic interior photography, professionally styled, DSLR quality, natural lighting",
-    "high detail, sharp focus, 8K resolution, looks completely real and naturally decorated",
+    "apply the design onto the wall as a real physical decal/wallpaper that is perfectly flat and front-facing",
+    "NO perspective distortion, NO warping, NO skewing, keep the design geometry unchanged (straight lines stay straight)",
+    "foreground objects (shelves, utensils, plants, appliances) naturally sit in front of the wall and occlude the decal where they overlap",
+    "the decal follows the wall material and lighting with subtle contact shadow and realistic surface integration (not floating)",
+    "photorealistic interior photography, professionally styled, DSLR quality, natural lighting, realistic depth of field",
+    "high detail, sharp focus, looks completely real and camera-captured, no CGI, no illustration",
   ].join(", ");
 
   logger.debug("[Composite] Generating mockup", {
