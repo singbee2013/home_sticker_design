@@ -1566,26 +1566,25 @@ async function composeWallpaperToScene(
   }
   const repeatedBuffer = await repeatedLayer.composite(repeats).png().toBuffer();
 
-  // Perspective-ish wall mask: top narrower than bottom to avoid floating-card look.
-  const topInset = Math.round(wallW * wallPreset.topInsetRatio);
-  const topLift = Math.round(wallH * wallPreset.topLiftRatio);
-  const mX1 = wallX + topInset;
-  const mY1 = wallY + topLift;
-  const mX2 = wallX + wallW - topInset;
-  const mY2 = wallY + topLift;
+  // User requirement for Amazon mockups: decal lies flat on wall — NO perspective warp.
+  const mX1 = wallX;
+  const mY1 = wallY;
+  const mX2 = wallX + wallW;
+  const mY2 = wallY;
   const mX3 = wallX + wallW;
   const mY3 = wallY + wallH;
   const mX4 = wallX;
   const mY4 = wallY + wallH;
-  const maskSvg = `<svg width="${sceneW}" height="${sceneH}"><polygon points="${mX1},${mY1} ${mX2},${mY2} ${mX3},${mY3} ${mX4},${mY4}" fill="white"/></svg>`;
+  const maskSvg = `<svg width="${sceneW}" height="${sceneH}"><rect x="${mX1}" y="${mY1}" width="${wallW}" height="${wallH}" fill="white"/></svg>`;
   let maskedPattern = await sharp(repeatedBuffer)
     .composite([{ input: Buffer.from(maskSvg), blend: "dest-in" }])
-    .blur(0.5)
     .png()
     .toBuffer();
-  maskedPattern = await applyAlphaMultiplier(maskedPattern, 0.82);
+  // Keep decal solid (avoid the "transparent floating sheet" look).
+  maskedPattern = await applyAlphaMultiplier(maskedPattern, 0.96);
 
-  const overlays: sharp.OverlayOptions[] = [{ input: maskedPattern, left: 0, top: 0, blend: "multiply" }];
+  // Use normal alpha compositing; multiply makes it look like a tinted glass sheet.
+  const overlays: sharp.OverlayOptions[] = [{ input: maskedPattern, left: 0, top: 0, blend: "over" }];
 
   if (slot === "dimension") {
     const label = sanitizeSvgText((sizeSpec?.trim() || "尺寸示意"));
@@ -1665,26 +1664,23 @@ async function composeFloorToScene(
   }
   const repeatedBuffer = await repeatedLayer.composite(repeats).png().toBuffer();
 
-  // Perspective-ish floor mask: far edge narrower than near edge.
-  const topInset = Math.round(floorW * p.topInsetRatio);
-  const topLift = Math.round(floorH * p.topLiftRatio);
-  const mX1 = floorX + topInset;
-  const mY1 = floorY + topLift;
-  const mX2 = floorX + floorW - topInset;
-  const mY2 = floorY + topLift;
+  // User requirement: no perspective warp — keep decal perfectly rectangular.
+  const mX1 = floorX;
+  const mY1 = floorY;
+  const mX2 = floorX + floorW;
+  const mY2 = floorY;
   const mX3 = floorX + floorW;
   const mY3 = floorY + floorH;
   const mX4 = floorX;
   const mY4 = floorY + floorH;
-  const maskSvg = `<svg width="${sceneW}" height="${sceneH}"><polygon points="${mX1},${mY1} ${mX2},${mY2} ${mX3},${mY3} ${mX4},${mY4}" fill="white"/></svg>`;
+  const maskSvg = `<svg width="${sceneW}" height="${sceneH}"><rect x="${mX1}" y="${mY1}" width="${floorW}" height="${floorH}" fill="white"/></svg>`;
   let maskedPattern = await sharp(repeatedBuffer)
     .composite([{ input: Buffer.from(maskSvg), blend: "dest-in" }])
-    .blur(0.6)
     .png()
     .toBuffer();
-  maskedPattern = await applyAlphaMultiplier(maskedPattern, 0.78);
+  maskedPattern = await applyAlphaMultiplier(maskedPattern, 0.96);
 
-  const overlays: sharp.OverlayOptions[] = [{ input: maskedPattern, left: 0, top: 0, blend: "multiply" }];
+  const overlays: sharp.OverlayOptions[] = [{ input: maskedPattern, left: 0, top: 0, blend: "over" }];
 
   if (slot === "dimension") {
     const label = sanitizeSvgText((sizeSpec?.trim() || "尺寸示意"));
