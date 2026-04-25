@@ -1726,6 +1726,12 @@ async function processAmazonListingGeneration(
   const patternCount = await getPatternCount();
   const productOriginalBuffer = await downloadRemoteImageBuffer(input.referenceImageUrl);
   const productCutoutBuffer = await buildWhiteBackgroundCutout(productOriginalBuffer);
+  // Upload cutout once for AI-based compositing (perspective + lighting integration).
+  const { url: cutoutUrl } = await storagePut(
+    `listing-cutouts/${userId}-${Date.now()}-${Math.random().toString(36).slice(2)}.png`,
+    productCutoutBuffer,
+    "image/png"
+  );
   let completed = 0;
   let failed = 0;
 
@@ -1769,11 +1775,35 @@ async function processAmazonListingGeneration(
         };
         const { url: sceneUrl } = await generateImage(genOptions);
         if (!sceneUrl) throw new Error("No scene URL returned");
-        // Wallpaper / wall-decal categories should be applied onto wall plane (not floating).
-        if (isWallDecalCategory(input.category)) {
-          finalImageUrl = await composeWallpaperToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt);
-        } else if (input.category === "floor") {
-          finalImageUrl = await composeFloorToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt);
+        // For wall/floor decor categories, use AI composite to get real perspective + lighting.
+        if (isWallDecalCategory(input.category) || input.category === "floor") {
+          const categoryLabel = CATEGORY_LABELS[input.category as TemplateCategory] || input.category;
+          const { url } = await generateCompositeImage({
+            sceneImageUrl: sceneUrl,
+            patternImageUrl: cutoutUrl,
+            categoryLabel,
+          });
+          finalImageUrl = url;
+
+          // Add dimension overlay on top of the AI-composited result when needed.
+          if (slot === "dimension") {
+            const composedBuffer = await downloadRemoteImageBuffer(finalImageUrl);
+            const meta = await sharp(composedBuffer).metadata();
+            const w = meta.width ?? 1024;
+            const h = meta.height ?? 1024;
+            const label = sanitizeSvgText((input.sizeSpec?.trim() || "尺寸示意"));
+            const svg = `
+              <svg width="${w}" height="${h}">
+                <rect x="${Math.round(w * 0.28)}" y="${Math.round(h * 0.08)}" width="${Math.round(w * 0.44)}" height="44" rx="10" fill="rgba(255,255,255,0.92)"/>
+                <text x="${Math.round(w * 0.5)}" y="${Math.round(h * 0.11) + 18}" text-anchor="middle" font-size="24" fill="#1f1f1f" font-family="Arial, sans-serif">${label}</text>
+              </svg>`;
+            const withDim = await sharp(composedBuffer)
+              .composite([{ input: Buffer.from(svg), left: 0, top: 0 }])
+              .jpeg({ quality: 92 })
+              .toBuffer();
+            const put = await storagePut(`generated/amazon-dimension-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`, withDim, "image/jpeg");
+            finalImageUrl = put.url;
+          }
         } else {
           // Device skins / single-object listings: keep object overlay to preserve proportions.
           finalImageUrl = await composeProductIntoScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, input.category);
