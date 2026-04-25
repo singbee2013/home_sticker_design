@@ -22,9 +22,15 @@ export async function hashPassword(plain: string): Promise<string> {
 export async function verifyPassword(plain: string, stored: string): Promise<boolean> {
   const [salt, hash] = stored.split(":");
   if (!salt || !hash) return false;
-  const derivedKey = (await scryptAsync(plain, salt, 64)) as Buffer;
-  const storedBuf = Buffer.from(hash, "hex");
-  return timingSafeEqual(derivedKey, storedBuf);
+  try {
+    const derivedKey = (await scryptAsync(plain, salt, 64)) as Buffer;
+    const storedBuf = Buffer.from(hash, "hex");
+    // timingSafeEqual throws if buffer lengths differ; treat as invalid password.
+    if (derivedKey.length !== storedBuf.length) return false;
+    return timingSafeEqual(derivedKey, storedBuf);
+  } catch {
+    return false;
+  }
 }
 
 // ── Session JWT ───────────────────────────────────────────────────────────────

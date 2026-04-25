@@ -21,6 +21,7 @@ import {
   getUserByEmail,
   getUserByPhone,
   upsertUser,
+  getDb,
   saveSmsCode,
   verifySmsCode,
   saveEmailResetCode,
@@ -289,9 +290,18 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
+        // Avoid misleading "password wrong" when DB is not configured/available.
+        const db = await getDb();
+        if (!db) {
+          throw new Error("服务器数据库未连接：请检查 DATABASE_URL / 数据库服务是否正常");
+        }
         const user = await getUserByEmail(input.email);
-        if (!user || !user.passwordHash) {
+        if (!user) {
           throw new Error("邮箱或密码错误");
+        }
+        // Common: user created via phone/OAuth and has no local password yet.
+        if (!user.passwordHash) {
+          throw new Error("该账号未设置邮箱密码，请点击「忘记密码」先设置密码");
         }
         const ok = await verifyPassword(input.password, user.passwordHash);
         if (!ok) throw new Error("邮箱或密码错误");
@@ -1595,6 +1605,105 @@ async function composeWallpaperToScene(
   return url;
 }
 
+async function composeFloorToScene(
+  sceneUrl: string,
+  productCutoutBuffer: Buffer,
+  slot: AmazonListingSlot,
+  sizeSpec?: string,
+  sceneHintText?: string
+): Promise<string> {
+  const sceneBuffer = await downloadRemoteImageBuffer(sceneUrl);
+  const sceneMeta = await sharp(sceneBuffer).metadata();
+  const sceneW = sceneMeta.width ?? 1024;
+  const sceneH = sceneMeta.height ?? 1024;
+
+  type FloorSceneType = "kitchen" | "bathroom" | "living_room" | "studio";
+  const detectText = `${slot} ${sceneHintText || ""}`.toLowerCase();
+  const sceneType: FloorSceneType = (() => {
+    if (/bath|卫生间|马桶|moisture|steam|humid/.test(detectText)) return "bathroom";
+    if (/kitchen|厨房|backsplash|cabinet|stove|sink/.test(detectText)) return "kitchen";
+    if (/living|客厅|sofa|tv|feature wall/.test(detectText)) return "living_room";
+    return "studio";
+  })();
+
+  const floorPresets: Record<
+    FloorSceneType,
+    { xRatio: number; yRatio: number; wRatio: number; hRatio: number; topInsetRatio: number; topLiftRatio: number }
+  > = {
+    kitchen: { xRatio: 0.08, yRatio: 0.48, wRatio: 0.84, hRatio: 0.5, topInsetRatio: 0.22, topLiftRatio: 0.02 },
+    bathroom: { xRatio: 0.08, yRatio: 0.5, wRatio: 0.84, hRatio: 0.48, topInsetRatio: 0.24, topLiftRatio: 0.02 },
+    living_room: { xRatio: 0.06, yRatio: 0.5, wRatio: 0.88, hRatio: 0.5, topInsetRatio: 0.26, topLiftRatio: 0.02 },
+    studio: { xRatio: 0.08, yRatio: 0.52, wRatio: 0.84, hRatio: 0.46, topInsetRatio: 0.24, topLiftRatio: 0.02 },
+  };
+  const p = floorPresets[sceneType];
+
+  const floorX = Math.round(sceneW * p.xRatio);
+  const floorY = Math.round(sceneH * p.yRatio);
+  const floorW = Math.round(sceneW * p.wRatio);
+  const floorH = Math.round(sceneH * p.hRatio);
+
+  const tileCols = slot === "detail_1" || slot === "detail_2" || slot === "detail_3" ? 4 : 7;
+  const tileW = Math.max(56, Math.round(floorW / tileCols));
+  const tile = await sharp(productCutoutBuffer)
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
+    .resize({ width: tileW, withoutEnlargement: false })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+  const tileMeta = await sharp(tile).metadata();
+  const tileH = tileMeta.height ?? tileW;
+
+  // Build repeated pattern layer over floor area.
+  const repeatedLayer = sharp({
+    create: { width: sceneW, height: sceneH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  });
+  const repeats: sharp.OverlayOptions[] = [];
+  for (let y = floorY; y < floorY + floorH; y += tileH) {
+    for (let x = floorX; x < floorX + floorW; x += tileW) {
+      repeats.push({ input: tile, left: x, top: y });
+    }
+  }
+  const repeatedBuffer = await repeatedLayer.composite(repeats).png().toBuffer();
+
+  // Perspective-ish floor mask: far edge narrower than near edge.
+  const topInset = Math.round(floorW * p.topInsetRatio);
+  const topLift = Math.round(floorH * p.topLiftRatio);
+  const mX1 = floorX + topInset;
+  const mY1 = floorY + topLift;
+  const mX2 = floorX + floorW - topInset;
+  const mY2 = floorY + topLift;
+  const mX3 = floorX + floorW;
+  const mY3 = floorY + floorH;
+  const mX4 = floorX;
+  const mY4 = floorY + floorH;
+  const maskSvg = `<svg width="${sceneW}" height="${sceneH}"><polygon points="${mX1},${mY1} ${mX2},${mY2} ${mX3},${mY3} ${mX4},${mY4}" fill="white"/></svg>`;
+  let maskedPattern = await sharp(repeatedBuffer)
+    .composite([{ input: Buffer.from(maskSvg), blend: "dest-in" }])
+    .blur(0.6)
+    .png()
+    .toBuffer();
+  maskedPattern = await applyAlphaMultiplier(maskedPattern, 0.78);
+
+  const overlays: sharp.OverlayOptions[] = [{ input: maskedPattern, left: 0, top: 0, blend: "multiply" }];
+
+  if (slot === "dimension") {
+    const label = sanitizeSvgText((sizeSpec?.trim() || "尺寸示意"));
+    const lineY = mY4 - Math.round(sceneH * 0.04);
+    const dimSvg = `
+      <svg width="${sceneW}" height="${sceneH}">
+        <line x1="${mX4 + 20}" y1="${lineY}" x2="${mX3 - 20}" y2="${lineY}" stroke="#2f2f2f" stroke-width="3"/>
+        <line x1="${mX4 + 20}" y1="${lineY - 10}" x2="${mX4 + 20}" y2="${lineY + 10}" stroke="#2f2f2f" stroke-width="3"/>
+        <line x1="${mX3 - 20}" y1="${lineY - 10}" x2="${mX3 - 20}" y2="${lineY + 10}" stroke="#2f2f2f" stroke-width="3"/>
+        <rect x="${Math.round(sceneW * 0.33)}" y="${lineY - 52}" width="${Math.round(sceneW * 0.34)}" height="42" rx="8" fill="rgba(255,255,255,0.92)"/>
+        <text x="${Math.round(sceneW * 0.5)}" y="${lineY - 24}" text-anchor="middle" font-size="24" fill="#1f1f1f" font-family="Arial, sans-serif">${label}</text>
+      </svg>`;
+    overlays.push({ input: Buffer.from(dimSvg), left: 0, top: 0 });
+  }
+
+  const composed = await sharp(sceneBuffer).composite(overlays).jpeg({ quality: 92 }).toBuffer();
+  const { url } = await storagePut(`generated/amazon-floor-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`, composed, "image/jpeg");
+  return url;
+}
+
 async function processAmazonListingGeneration(
   taskId: number,
   userId: number,
@@ -1660,19 +1769,15 @@ async function processAmazonListingGeneration(
         };
         const { url: sceneUrl } = await generateImage(genOptions);
         if (!sceneUrl) throw new Error("No scene URL returned");
-        /**
-         * For Amazon listing compositing, users upload a white-background product image
-         * and expect realistic "single product on wall" placement with correct proportions.
-         * The old wallpaper tiling path often looked wrong (full-wall pattern blocks).
-         * Use the product compositing path for all categories to preserve product ratio.
-         */
-        finalImageUrl = await composeProductIntoScene(
-          sceneUrl,
-          productCutoutBuffer,
-          slot,
-          input.sizeSpec,
-          input.category
-        );
+        // Wallpaper / wall-decal categories should be applied onto wall plane (not floating).
+        if (isWallDecalCategory(input.category)) {
+          finalImageUrl = await composeWallpaperToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt);
+        } else if (input.category === "floor") {
+          finalImageUrl = await composeFloorToScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, slotPrompt);
+        } else {
+          // Device skins / single-object listings: keep object overlay to preserve proportions.
+          finalImageUrl = await composeProductIntoScene(sceneUrl, productCutoutBuffer, slot, input.sizeSpec, input.category);
+        }
       }
 
       await updatePattern(patternId, { imageUrl: finalImageUrl, status: "completed" });
