@@ -1,0 +1,65 @@
+ad_channels:
+  facebook:
+    name: "Facebook 广告"
+    code: "FB"
+    sizes:
+      - name: "Feed"
+        width: 1200
+        height: 628
+      - name: "Story"
+        width: 1080
+        height: 1920
+      - name: "Carousel"
+        width: 1080
+        height: 1080
+    formats: ["JPEG", "PNG"]
+
+  instagram:
+    name: "Instagram 广告"
+    code: "IG"
+    sizes:
+      - name: "Feed"
+        width: 1080
+        height: 1080
+      - name: "Story"
+        width: 1080
+        height: 1920
+      - name: "Reels Cover"
+        width: 1080
+        height: 1920
+    formats: ["JPEG", "PNG"]
+
+  tiktok:
+    name: "TikTok 广告"
+    code: "TT"
+    sizes:
+      - name: "In-Feed"
+        width: 1080
+        height: 1920
+      - name: "Cover"
+        width: 720
+        height: 1280
+    formats: ["JPEG", "PNG"]
+
+  banner:
+    name: "独立站 Banner"
+    code: "BNR"
+    sizes:
+      - name: "Leaderboard"
+        width: 1920
+        height: 600
+      - name: "Medium Rectangle"
+        width: 300
+        height: 250
+      - name: "Skyscraper"
+        width: 160
+        height: 600
+    formats: ["JPEG", "PNG"]
+
+video:
+  duration_min: 10
+  duration_max: 15
+  resolution: [1080, 1920]
+  fps: 30
+  format: "mp4"
+

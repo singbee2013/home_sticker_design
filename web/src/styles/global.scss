@@ -1,0 +1,86 @@
+/* DecorAI design tokens — light & dark themes */
+:root {
+  /* Brand */
+  --brand-50:  #E8F6F1;
+  --brand-100: #C8EADD;
+  --brand-200: #92D5BB;
+  --brand-300: #5BBF99;
+  --brand-400: #2BA679;
+  --brand-500: #0F5F4C;   /* primary */
+  --brand-600: #0B4D3E;
+  --brand-700: #083B30;
+  --brand-accent: #3FE0B5;
+
+  /* Surfaces (light) */
+  --bg-page:     #F5F7F6;
+  --bg-card:     #FFFFFF;
+  --bg-sidebar:  #FBFCFC;
+  --bg-elevated: #FFFFFF;
+  --border-soft: #ECEEEE;
+  --border-line: #E2E5E5;
+
+  /* Text */
+  --text-primary:   #1B2826;
+  --text-secondary: #5C6B68;
+  --text-tertiary:  #8A9794;
+  --text-inverse:   #FFFFFF;
+
+  --shadow-card: 0 1px 2px rgba(15,95,76,0.04), 0 4px 12px rgba(15,95,76,0.04);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Element Plus override */
+  --el-color-primary: var(--brand-500);
+  --el-color-primary-light-3: var(--brand-300);
+  --el-color-primary-light-5: var(--brand-200);
+  --el-color-primary-light-7: var(--brand-100);
+  --el-color-primary-light-9: var(--brand-50);
+  --el-color-primary-dark-2: var(--brand-700);
+  --el-border-radius-base: 8px;
+}
+
+html.dark {
+  --bg-page:     #0E1513;
+  --bg-card:     #161E1C;
+  --bg-sidebar:  #121A18;
+  --bg-elevated: #1B2422;
+  --border-soft: #1F2826;
+  --border-line: #263130;
+
+  --text-primary:   #E6ECEA;
+  --text-secondary: #A4B0AD;
+  --text-tertiary:  #6F7C79;
+  --text-inverse:   #0E1513;
+
+  --shadow-card: 0 1px 2px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.25);
+
+  --el-bg-color: var(--bg-card);
+  --el-bg-color-page: var(--bg-page);
+  --el-bg-color-overlay: var(--bg-elevated);
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-secondary);
+  --el-text-color-secondary: var(--text-tertiary);
+  --el-border-color: var(--border-line);
+  --el-border-color-light: var(--border-soft);
+  --el-border-color-lighter: var(--border-soft);
+  --el-fill-color-blank: var(--bg-card);
+  --el-fill-color: var(--bg-elevated);
+  --el-fill-color-light: var(--bg-elevated);
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: inherit; text-decoration: none; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border-line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }

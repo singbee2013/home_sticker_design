@@ -1,0 +1,78 @@
+platforms:
+  amazon:
+    name: "Amazon"
+    code: "AMZ"
+    main_image_size: [2000, 2000]
+    secondary_image_size: [2000, 2000]
+    main_image_count: 1
+    secondary_image_count: 8
+    detail_page_width: 970
+    detail_page_max_height: 10000
+    formats: ["JPEG", "PNG"]
+
+  temu:
+    name: "Temu"
+    code: "Temu"
+    main_image_size: [2000, 2000]
+    secondary_image_size: [2000, 2000]
+    main_image_count: 1
+    secondary_image_count: 10
+    detail_page_width: 750
+    detail_page_max_height: 10000
+    formats: ["JPEG", "PNG"]
+
+  shein:
+    name: "SHEIN"
+    code: "SHEIN"
+    main_image_size: [1600, 2134]
+    secondary_image_size: [1600, 2134]
+    main_image_count: 1
+    secondary_image_count: 7
+    detail_page_width: 750
+    detail_page_max_height: 10000
+    formats: ["JPEG"]
+
+  tiktok_shop:
+    name: "TikTok Shop"
+    code: "TTS"
+    main_image_size: [2000, 2000]
+    secondary_image_size: [2000, 2000]
+    main_image_count: 1
+    secondary_image_count: 8
+    detail_page_width: 750
+    detail_page_max_height: 10000
+    formats: ["JPEG", "PNG"]
+
+  taobao:
+    name: "淘宝"
+    code: "TB"
+    main_image_size: [1200, 1200]
+    secondary_image_size: [1200, 1200]
+    main_image_count: 1
+    secondary_image_count: 5
+    detail_page_width: 750
+    detail_page_max_height: 15000
+    formats: ["JPEG"]
+
+  alibaba_1688:
+    name: "1688"
+    code: "1688"
+    main_image_size: [1200, 1200]
+    secondary_image_size: [1200, 1200]
+    main_image_count: 1
+    secondary_image_count: 5
+    detail_page_width: 750
+    detail_page_max_height: 15000
+    formats: ["JPEG"]
+
+  alibaba_intl:
+    name: "阿里巴巴国际站"
+    code: "ALI"
+    main_image_size: [1500, 1500]
+    secondary_image_size: [1500, 1500]
+    main_image_count: 1
+    secondary_image_count: 6
+    detail_page_width: 790
+    detail_page_max_height: 10000
+    formats: ["JPEG", "PNG"]
+

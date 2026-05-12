@@ -1,0 +1,31 @@
+# Build context excludes
+.git
+.idea
+.vscode
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.log
+.DS_Store
+
+# Local data — keep image small, mount via volume in compose
+data/
+static/generated/*
+!static/generated/.gitkeep
+static/uploads/*
+!static/uploads/.gitkeep
+
+# Frontend artifacts (rebuilt inside the image)
+web/node_modules
+web/dist
+
+# Tests / docs not needed in image
+tests/
+test_results.txt
+debug_*.py
+test_*.py
+run_test*.sh
+nginx/
+
+

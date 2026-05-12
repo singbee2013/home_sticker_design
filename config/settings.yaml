@@ -1,0 +1,78 @@
+app:
+  name: "AI贴纸设计系统"
+  version: "1.0.0"
+  debug: true
+  host: "0.0.0.0"
+  port: 8080
+  secret_key: "change-me-to-a-random-secret-key-in-production"
+  access_token_expire_minutes: 1440
+
+database:
+  url: "sqlite:///./data/app.db"
+
+storage:
+  type: "local"  # local | s3
+  local_path: "./static"
+  base_url: "/static"
+  s3_bucket: ""
+  s3_region: ""
+  s3_access_key: ""
+  s3_secret_key: ""
+
+ai:
+  # Use "mock" for offline/demo mode (no API key needed). Switch to gpt_image,
+  # stable_diffusion, midjourney or gemini once the keys/endpoints below are set.
+  default_provider: "gemini"
+  default_resolution: 1024
+  max_resolution: 2048
+
+  # ---- Per-provider config (env vars always take precedence) ----
+  providers:
+    gemini:
+      model: "gemini-2.5-flash-image"
+      api_url: "https://generativelanguage.googleapis.com/v1beta"
+
+    gpt_image:
+      # === Azure AI Foundry / Azure OpenAI ===
+      # Fill these to route gpt_image through your Azure deployment.
+      # Endpoint can be either:
+      #   https://<resource>.openai.azure.com
+      #   https://<project>.services.ai.azure.com
+      azure_endpoint: ""           # e.g. "https://my-foundry.openai.azure.com"
+      azure_deployment: "gpt-image-1"   # the deployment name in your Foundry project
+      azure_api_version: "2025-04-01-preview"
+      # Auth: leave use_entra_id=true to use DefaultAzureCredential
+      # (az login / Managed Identity / Workload Identity / env vars all work).
+      # Set to false and supply azure_api_key to use key-based auth instead.
+      use_entra_id: true
+      azure_api_key: ""            # only used when use_entra_id=false
+
+      # === Public OpenAI fallback (used when azure_endpoint is empty) ===
+      openai_api_key: ""           # or env OPENAI_API_KEY
+      openai_base_url: "https://api.openai.com/v1"
+      openai_model: "gpt-image-2"
+
+    siliconflow:
+      api_url: "https://api.siliconflow.cn/v1"
+      model: "Kwai-Kolors/Kolors"
+      api_key: ""
+
+    wanxiang:
+      api_url: "https://dashscope.aliyuncs.com"
+      model: "wanx2.1-t2i-turbo"
+      api_key: ""
+
+modules:
+  - auth
+  - category
+  - style
+  - scene
+  - effect
+  - numbering
+  - ai_engine
+  - platform_suite
+  - ad_material
+  - video
+  - download
+  - i18n
+
