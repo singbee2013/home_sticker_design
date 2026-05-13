@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libjpeg62-turbo libpng16-16 libfreetype6 \
         ffmpeg fonts-noto-cjk fonts-dejavu-core \
         curl \
+        tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -39,7 +40,8 @@ RUN mkdir -p /app/data /app/static/generated /app/static/uploads
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8080
+    PORT=8080 \
+    TZ=Asia/Shanghai
 
 EXPOSE 8080
 

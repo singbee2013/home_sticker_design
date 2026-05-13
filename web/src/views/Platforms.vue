@@ -208,6 +208,7 @@ import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import http from '@/api/http'
 import { defaultProviderIfGeminiAvailable, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { formatDateTimeBeijing } from '@/utils/datetime'
 
 const platforms = ref({})
 const suites = ref([])
@@ -275,10 +276,7 @@ function providerLabel(p) {
 }
 
 function formatTime(v) {
-  if (!v) return '-'
-  const d = new Date(v)
-  if (Number.isNaN(d.getTime())) return '-'
-  return d.toLocaleString()
+  return formatDateTimeBeijing(v)
 }
 
 function flattenSceneSecondary(nodes, acc = []) {

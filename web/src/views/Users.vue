@@ -27,7 +27,9 @@
           <el-tag :type="row.is_active ? 'success' : 'warning'">{{ row.is_active ? '已启用' : '待审核/停用' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="创建时间" min-width="170" />
+      <el-table-column label="创建时间" min-width="190">
+        <template #default="{ row }">{{ formatDateTimeBeijing(row.created_at) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }">
           <el-button v-if="!row.is_superadmin && !row.is_active" size="small" type="primary" @click="approve(row.id)">审核通过</el-button>
@@ -47,7 +49,9 @@
       </div>
       <el-table :data="auditLogs" border>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="created_at" label="时间" min-width="170" />
+        <el-table-column label="时间" min-width="190">
+          <template #default="{ row }">{{ formatDateTimeBeijing(row.created_at) }}</template>
+        </el-table-column>
         <el-table-column prop="username" label="账号" width="150" />
         <el-table-column prop="module" label="模块" width="120" />
         <el-table-column prop="action" label="动作" width="120" />
@@ -78,6 +82,7 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { formatDateTimeBeijing } from '@/utils/datetime'
 import * as authApi from '@/api/auth'
 
 const users = ref([])

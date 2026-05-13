@@ -1,3 +1,5 @@
+# 阿里云 rootless Podman + 宿主机 Nginx 若仍间歇 502：可叠加 docker-compose.podman-host.yml
+#   （需 export DECORAI_USE_PODMAN_HOST_COMPOSE=1 后再跑 fix-server-502.sh / compose）。
 services:
   app:
     build: .
@@ -6,8 +8,10 @@ services:
     restart: unless-stopped
     expose:
       - "8080"
+    # 勿写 127.0.0.1:3000 — rootless Podman 上常导致宿主机无监听 → curl 拒绝连接 → Nginx 502。
+    # 云安全组一般未放行 3000，外网仍只走 80/443；本机 Nginx 反代 127.0.0.1:3000 可访问。
     ports:
-      - "127.0.0.1:3000:8080"
+      - "3000:8080"
     # Podman/rootless 下常见：容器内无法解析外网 DNS → Gemini 报 Temporary failure in name resolution
     dns:
       - "8.8.8.8"
@@ -17,6 +21,7 @@ services:
     # extra_hosts:
     #   - "generativelanguage.googleapis.com:142.250.x.x"
     environment:
+      TZ: Asia/Shanghai
       # ---- App ----
       SECRET_KEY: ${SECRET_KEY:-please-change-me-to-a-32-char-random-string}
       DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/app.db}

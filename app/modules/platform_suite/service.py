@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import re
 import uuid
@@ -24,6 +25,8 @@ from app.config import get_settings
 from app.common.storage import get_storage
 from .models import PlatformSuite, SuiteImage
 from app.modules.scene.models import SceneImage
+
+_log = logging.getLogger(__name__)
 
 
 def _provider_retry_chain(requested: str | None, available: list[str]) -> list[str]:
@@ -613,17 +616,29 @@ def generate_suite_images_ai(
         )
         if use_scene_composite:
             scene_row = scene_rows[(i - 1) % len(scene_rows)]
-            scene_bytes = storage.read_bytes(scene_row.file_path)
-            composite_hint = (
-                f"{instr} Render the wallpaper applied on realistic surface (wall/floor/kitchen as scene context), "
-                "not isolated product shot. Keep perspective and occlusion realistic. "
-                "Cover a substantial visible wall/floor area with seamless repeated pattern, never one enlarged patch. "
-                "Pattern repeat size must stay physically plausible for 58cm repeat unit (or provided repeat unit), "
-                "show multiple repeats across target wall."
-            )
-            raw, used_provider = _composite_with_retry(
-                ai_service, provider_chain, source_for_ai, scene_bytes, composite_hint
-            )
+            try:
+                scene_bytes = storage.read_bytes(scene_row.file_path)
+            except FileNotFoundError:
+                _log.warning(
+                    "suite %s: scene image file missing (scene_image id=%s path=%s), fallback to listing-only",
+                    suite.id,
+                    scene_row.id,
+                    scene_row.file_path,
+                )
+                raw, used_provider = _listing_image_with_retry(
+                    ai_service, provider_chain, source_for_ai, instr, allow_text=allow_text
+                )
+            else:
+                composite_hint = (
+                    f"{instr} Render the wallpaper applied on realistic surface (wall/floor/kitchen as scene context), "
+                    "not isolated product shot. Keep perspective and occlusion realistic. "
+                    "Cover a substantial visible wall/floor area with seamless repeated pattern, never one enlarged patch. "
+                    "Pattern repeat size must stay physically plausible for 58cm repeat unit (or provided repeat unit), "
+                    "show multiple repeats across target wall."
+                )
+                raw, used_provider = _composite_with_retry(
+                    ai_service, provider_chain, source_for_ai, scene_bytes, composite_hint
+                )
         else:
             raw, used_provider = _listing_image_with_retry(
                 ai_service, provider_chain, source_for_ai, instr, allow_text=allow_text
