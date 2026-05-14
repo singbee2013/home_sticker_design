@@ -1,12 +1,14 @@
 from __future__ import annotations
+import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, UploadFile, File, Form, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 
+from app.common.background_jobs import spawn_daemon_thread
 from app.database import SessionLocal
 from app.deps import get_db
-from app.modules.auth.deps import get_current_user, require_permission
+from app.modules.auth.deps import require_permission
 from app.modules.auth.models import User
 from app.modules.auth.service import log_audit
 
@@ -14,6 +16,7 @@ from .schemas import SuiteOut
 from . import service
 
 router = APIRouter()
+_log = logging.getLogger(__name__)
 
 
 def _run_suite_generation(
@@ -86,7 +89,6 @@ def list_platforms():
 
 @router.post("/", response_model=SuiteOut)
 async def create_suite(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     texture_file: UploadFile | None = File(None),
     platform_code: str = Form("amazon"),
@@ -113,44 +115,54 @@ async def create_suite(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("suites.manage")),
 ):
-    img_bytes = await file.read()
-    texture_bytes = await texture_file.read() if texture_file else None
-    suite = service.create_suite(
-        db,
-        platform_code,
-        created_by=user.username,
-        material_number=material_number,
-        title=title,
-        product_description=product_description,
-        dimensions_spec=dimensions_spec,
-    )
-    suite.status = "pending"
-    db.commit()
-    db.refresh(suite)
-    background_tasks.add_task(
-        _run_suite_generation,
-        suite.id,
-        img_bytes,
-        texture_bytes,
-        provider,
-        output_count,
-        main_image_count,
-        detail_image_count,
-        scene_category_id,
-        precise_attach_enabled,
-        keep_pattern_scale,
-        pattern_scale_percent,
-        product_width_cm,
-        product_height_cm,
-        tile_width_cm,
-        tile_height_cm,
-        target_surface_width_cm,
-        target_surface_height_cm,
-        generation_mode,
-        strict_attach_mode,
-    )
-    log_audit(db, user, action="generate", module="suites", target=f"suite:{suite.id}", detail=(title or platform_code or "")[:120])
-    return suite
+    try:
+        img_bytes = await file.read()
+        texture_bytes = await texture_file.read() if texture_file else None
+        suite = service.create_suite(
+            db,
+            platform_code,
+            created_by=user.username,
+            material_number=material_number,
+            title=title,
+            product_description=product_description,
+            dimensions_spec=dimensions_spec,
+        )
+        suite.status = "pending"
+        db.commit()
+        db.refresh(suite)
+        spawn_daemon_thread(
+            _run_suite_generation,
+            (
+                suite.id,
+                img_bytes,
+                texture_bytes,
+                provider,
+                output_count,
+                main_image_count,
+                detail_image_count,
+                scene_category_id,
+                precise_attach_enabled,
+                keep_pattern_scale,
+                pattern_scale_percent,
+                product_width_cm,
+                product_height_cm,
+                tile_width_cm,
+                tile_height_cm,
+                target_surface_width_cm,
+                target_surface_height_cm,
+                generation_mode,
+                strict_attach_mode,
+            ),
+            name=f"suite-gen-{suite.id}",
+        )
+        log_audit(db, user, action="generate", module="suites", target=f"suite:{suite.id}", detail=(title or platform_code or "")[:120])
+        return suite
+    except HTTPException:
+        raise
+    except Exception as e:
+        _log.exception("platform_suite POST failed: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"提交失败: {str(e)[:400]}") from e
 
 
 @router.get("/", response_model=List[SuiteOut])
