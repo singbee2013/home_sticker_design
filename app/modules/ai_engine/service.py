@@ -74,8 +74,25 @@ def get_provider(name: str | None = None) -> AIProvider:
     return cls()
 
 
+def _provider_has_credentials(name: str) -> bool:
+    if name == "mock":
+        return True
+    if name == "gemini":
+        return bool(os.getenv("GEMINI_API_KEY", "").strip())
+    if name == "gpt_image":
+        return bool(os.getenv("OPENAI_API_KEY", "").strip()) or bool(
+            os.getenv("AZURE_OPENAI_API_KEY", "").strip()
+        )
+    if name == "siliconflow":
+        return bool(os.getenv("SILICONFLOW_API_KEY", "").strip())
+    if name == "wanxiang":
+        return bool(os.getenv("DASHSCOPE_API_KEY", "").strip())
+    return True
+
+
 def list_providers() -> list[str]:
-    return list(_PROVIDERS.keys())
+    """Providers that are registered and have API keys configured (excludes mock)."""
+    return [n for n in _PROVIDERS.keys() if n != "mock" and _provider_has_credentials(n)]
 
 
 # ---- Task execution ----

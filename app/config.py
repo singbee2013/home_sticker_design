@@ -21,6 +21,20 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _normalize_sqlite_url(url: str) -> str:
+    """Resolve relative SQLite paths against project root (stable in Docker: /app/data/app.db)."""
+    u = (url or "").strip()
+    if not u.startswith("sqlite"):
+        return u
+    if u.startswith("sqlite:////"):
+        return u
+    path = u[len("sqlite:///") :]
+    if path.startswith("./") or (path and path[0] not in "/"):
+        resolved = (PROJECT_ROOT / path).resolve()
+        return f"sqlite:///{resolved}"
+    return u
+
+
 class Settings:
     """Centralised, immutable-ish settings object."""
 
@@ -36,7 +50,9 @@ class Settings:
         self.ACCESS_TOKEN_EXPIRE_MINUTES: int = int(app.get("access_token_expire_minutes", 1440))
 
         db = raw.get("database", {})
-        self.DATABASE_URL: str = os.getenv("DATABASE_URL", db.get("url", "sqlite:///./data/app.db"))
+        self.DATABASE_URL: str = _normalize_sqlite_url(
+            os.getenv("DATABASE_URL", db.get("url", "sqlite:///./data/app.db"))
+        )
 
         storage = raw.get("storage", {})
         self.STORAGE_TYPE: str = storage.get("type", "local")

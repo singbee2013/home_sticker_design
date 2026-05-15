@@ -56,7 +56,7 @@
       <div class="row pair-row">
         <div class="pair-item">
           <div class="pair-label">生图模型</div>
-          <el-select v-model="form.provider" placeholder="生图模型" class="fld compact-fld">
+          <el-select v-model="form.provider" placeholder="生图模型" class="fld compact-fld" translate="no">
             <el-option v-for="p in providers" :key="p" :label="providerLabel(p)" :value="p" />
           </el-select>
         </div>
@@ -211,7 +211,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import http from '@/api/http'
-import { defaultProviderIfGeminiAvailable, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { defaultProviderIfGeminiAvailable, providerLabel, sortProvidersGeminiFirst } from '@/utils/aiProviders'
 import { formatDateTimeBeijing } from '@/utils/datetime'
 
 const platforms = ref({})
@@ -281,11 +281,6 @@ watch(
   },
   { immediate: true },
 )
-
-function providerLabel(p) {
-  const map = { gemini: 'Gemini', siliconflow: 'SiliconFlow', wanxiang: '通义万相', mock: 'Mock' }
-  return map[p] || p
-}
 
 function formatTime(v) {
   return formatDateTimeBeijing(v)

@@ -23,7 +23,7 @@
       </div>
       <div class="row">
         <div class="lbl">生图模型</div>
-        <el-select v-model="provider" placeholder="选择模型" class="w320">
+        <el-select v-model="provider" placeholder="选择模型" class="w320" translate="no">
           <el-option v-for="p in providers" :key="p" :label="providerLabel(p)" :value="p" />
         </el-select>
       </div>
@@ -134,7 +134,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { defaultProviderIfGeminiAvailable, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { defaultProviderIfGeminiAvailable, providerLabel, sortProvidersGeminiFirst } from '@/utils/aiProviders'
 
 const tree = ref([])
 const images = ref([])
@@ -159,11 +159,6 @@ const fillTargetSurface = ref(true)
 const providers = ref([])
 const provider = ref('gemini')
 const busy = ref(false)
-
-function providerLabel(p) {
-  const map = { gemini: 'Gemini', siliconflow: 'SiliconFlow', wanxiang: '通义万相', mock: 'Mock' }
-  return map[p] || p
-}
 
 function flattenCats(nodes, prefix = '', acc = []) {
   for (const n of nodes || []) {

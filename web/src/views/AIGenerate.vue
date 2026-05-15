@@ -10,7 +10,13 @@
 
         <el-form label-position="top" :model="form">
           <el-form-item label="生图模型">
-            <el-select v-model="form.provider" size="large" class="w-full" :key="orderedProviders.join(',')">
+            <el-select
+              v-model="form.provider"
+              size="large"
+              class="w-full provider-select"
+              translate="no"
+              :key="orderedProviders.join(',')"
+            >
               <el-option v-for="p in orderedProviders" :key="p" :label="providerLabel(p)" :value="p" />
             </el-select>
             <div class="hint">
@@ -106,7 +112,7 @@
             </div>
             <div class="result-meta">
               <div class="meta-row">
-                <span class="num">#{{ t.id }} · {{ t.provider }}</span>
+                <span class="num" translate="no">#{{ t.id }} · {{ providerShortLabel(t.provider) }}</span>
                 <div class="acts">
                   <el-button v-if="t.result_path" type="primary" link size="small"
                              :icon="Download" @click="downloadImage(t)">下载</el-button>
@@ -174,7 +180,12 @@ import { MagicStick, UploadFilled, Picture, Loading, Download, Delete } from '@e
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as aiApi from '@/api/ai'
 import * as metaApi from '@/api/meta'
-import { defaultProviderIfGeminiAvailable, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import {
+  defaultProviderIfGeminiAvailable,
+  providerLabel,
+  providerShortLabel,
+  sortProvidersGeminiFirst,
+} from '@/utils/aiProviders'
 
 const providers = ref([])
 const orderedProviders = computed(() => sortProvidersGeminiFirst(providers.value))
@@ -198,18 +209,6 @@ const form = reactive({
 
 const etaText = computed(() => form.provider === 'mock' ? '1 秒' : '20–60 秒')
 
-function providerLabel(p) {
-  const map = {
-    mock: 'Mock（离线占位）',
-    gpt_image: 'gpt-image-2',
-    stable_diffusion: 'Stable Diffusion',
-    midjourney: 'Midjourney',
-    gemini: 'Gemini',
-    siliconflow: 'SiliconFlow',
-    wanxiang: '通义万相',
-  }
-  return map[p] || p
-}
 function statusTag(s) { return ({ done: 'success', failed: 'danger', processing: 'warning' })[s] || 'info' }
 
 // ---- Image URL + preview lists + download ----

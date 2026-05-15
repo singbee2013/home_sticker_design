@@ -23,7 +23,7 @@
         <div class="sec-title">生成 / 上传（当前分类 ID：{{ selectedCatId ?? '未选择' }}）</div>
 
         <div class="gen-bar">
-          <el-select v-model="gen.provider" class="w320" placeholder="生图模型">
+          <el-select v-model="gen.provider" class="w320" placeholder="生图模型" translate="no">
             <el-option v-for="p in providers" :key="p" :label="providerLabel(p)" :value="p" />
           </el-select>
           <el-radio-group v-model="gen.mode" size="small">
@@ -84,7 +84,7 @@ import { reactive, ref } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { defaultProviderIfGeminiAvailable, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { defaultProviderIfGeminiAvailable, providerLabel, sortProvidersGeminiFirst } from '@/utils/aiProviders'
 
 const tree = ref([])
 const images = ref([])
@@ -101,11 +101,6 @@ const gen = reactive({
   count: 1,
   loading: false,
 })
-
-function providerLabel(p) {
-  const map = { gemini: 'Gemini', siliconflow: 'SiliconFlow', wanxiang: '通义万相', mock: 'Mock' }
-  return map[p] || p
-}
 
 function toStatic(p) {
   return p ? `/static/${p}` : ''

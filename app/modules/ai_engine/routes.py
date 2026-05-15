@@ -17,6 +17,8 @@ router = APIRouter()
 def providers():
     names = service.list_providers()
     default = service.get_effective_default_provider()
+    if default not in names and names:
+        default = names[0]
     if default in names:
         ordered = [default] + [n for n in names if n != default]
     else:
