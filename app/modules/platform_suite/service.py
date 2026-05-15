@@ -116,6 +116,93 @@ def _ascii_text(v: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _listing_prompt_text(product_description: str | None, dimensions_spec: str | None) -> tuple[str, str]:
+    """Full UTF-8 for AI listing prompts (model reads 中文); only collapse whitespace."""
+    d = re.sub(r"\s+", " ", (product_description or "").strip())
+    m = re.sub(r"\s+", " ", (dimensions_spec or "").strip())
+    return d, m
+
+
+def _parse_product_cm_from_dims(dimensions_spec: str) -> tuple[float | None, float | None]:
+    """Parse 'Product size: 22.9 cm x 29 cm' from dimensions_spec (frontend-enriched)."""
+    s = dimensions_spec or ""
+    m = re.search(
+        r"Product\s+size:\s*([0-9]+(?:\.[0-9]+)?)\s*cm\s*x\s*([0-9]+(?:\.[0-9]+)?)\s*cm",
+        s,
+        re.I,
+    )
+    if not m:
+        return None, None
+    try:
+        return float(m.group(1)), float(m.group(2))
+    except ValueError:
+        return None, None
+
+
+def _infer_packaging_form(combined_lower: str) -> str:
+    """roll | sheet — default sheet (片装) unless copy clearly describes a wallpaper roll."""
+    t = combined_lower
+    roll_hits = bool(
+        re.search(
+            r"卷装|卷筒|卷材|纸卷|壁纸卷|整卷|(\bwallpaper\s+)?roll\b|\brolled\b|\bon\s+a\s+roll\b|\brolled\s+wallpaper\b",
+            t,
+            re.I,
+        )
+    )
+    sheet_hits = bool(
+        re.search(
+            r"片装|单片|多片|散装片|平张|套装|一盒|一套|片数|\d+\s*片|\bpcs?\b|\bpieces?\b|\bsheets?\b|\bpack\s+of\b|\bflat\s+pack\b|\btile\s+stickers?\b|\bpeel[-\s]?and[-\s]?stick\b|\bwall\s*stickers?\b",
+            t,
+            re.I,
+        )
+    )
+    if roll_hits and not sheet_hits:
+        return "roll"
+    return "sheet"
+
+
+def _packaging_block(form: str) -> str:
+    if form == "roll":
+        return f"{ROLL_CORE_AI_PROMPT_EN} {ROLL_CORE_PATTERN_DIRECTION_EN} {ROLL_CORE_HERO_SCALE_EN}"
+    return (
+        "PACKAGING (SHEET / TILE / FLAT PACK — NOT A WALLPAPER ROLL): The sellable unit is flat sheet(s), tile panel(s), "
+        "or a retail pack of multiple flat pieces—NO cardboard tube core, NO long wallpaper roll, NO toilet-paper-style cylinder. "
+        "Keep the reference artwork as the visible print on each sheet; do not morph the sellable graphic into a rolled good."
+    )
+
+
+def _reference_fidelity_block() -> str:
+    return (
+        "REFERENCE FIDELITY: The uploaded image defines the sellable print—pattern, colors, motif layout, and tile grid "
+        "must match closely. Do NOT redesign, recolor, or substitute a different motif. Change only scene, lighting, angle, "
+        "and presentation."
+    )
+
+
+def _material_light_geometry_block() -> str:
+    return (
+        "MATERIAL / LIGHT / GEOMETRY: Match the reference photo's gloss level—if the surface is glossy with clear specular "
+        "highlights, keep that bright reflective look; if it is matte, keep matte. Do NOT randomly switch gloss↔matte. "
+        "Preserve apparent 3D relief, bevels, thickness, and camera perspective from the reference—do NOT re-flatten into a "
+        "fake 2D poster or a different product shape."
+    )
+
+
+def _dimension_plausibility_block(dims: str, product_w_cm: float | None, product_h_cm: float | None) -> str:
+    anchor = ""
+    if product_w_cm and product_h_cm:
+        anchor = (
+            f"PHYSICAL SIZE ANCHOR: the purchasable unit must visually read close to {product_w_cm:g} cm × {product_h_cm:g} cm "
+            "when compared with everyday props (books, hands, rulers)—avoid toy-scale or giant-scale mismatch. "
+        )
+    return (
+        anchor
+        + "SCALE: Use Dimensions context so width/height/thickness look plausible vs furniture and walls; preserve the "
+        "artwork aspect ratio—avoid extreme stretch of the pattern. Numbers in listing: "
+        + (dims[:280] if dims else "(see dimensions_spec)")
+    )
+
+
 def resize_and_save(image_bytes: bytes, width: int, height: int, fmt: str = "PNG") -> bytes:
     img = Image.open(io.BytesIO(image_bytes))
     fmt_u = fmt.upper()
@@ -436,8 +523,18 @@ def generate_suite_images_ai(
     pil_fmt = "JPEG"
     ext = "jpg"
 
-    desc = _ascii_text(suite.product_description or "")
-    dims = _ascii_text(suite.dimensions_spec or "")
+    desc, dims = _listing_prompt_text(suite.product_description, suite.dimensions_spec)
+    spec_pw, spec_ph = _parse_product_cm_from_dims(dims)
+    pw: float | None = float(product_width_cm) if product_width_cm is not None else spec_pw
+    ph: float | None = float(product_height_cm) if product_height_cm is not None else spec_ph
+    tw: float = float(tile_width_cm) if tile_width_cm is not None else (float(pw) if pw is not None else 58.0)
+    th: float = float(tile_height_cm) if tile_height_cm is not None else (float(ph) if ph is not None else 58.0)
+
+    packaging_form = _infer_packaging_form(f"{desc} {dims}".lower())
+    packaging_block = _packaging_block(packaging_form)
+    ref_block = _reference_fidelity_block()
+    mat_block = _material_light_geometry_block()
+    dim_block = _dimension_plausibility_block(dims, pw, ph)
     precise_hint = ""
     source_for_ai = source_image_bytes
     source_for_ai = _blend_texture_reference(source_for_ai, texture_bytes)
@@ -472,6 +569,9 @@ def generate_suite_images_ai(
         main_count = requested_main
         detail_count = requested_detail
         target_total = min(max(main_count + detail_count, 1), 12)
+        need = main_count + detail_count
+        if output_count is not None and output_count < need:
+            output_count = need
     else:
         target_total = max(default_total, min(output_count or default_total, 12))
         main_count = max(1, min(requested_main, target_total))
@@ -492,15 +592,35 @@ def generate_suite_images_ai(
     strict_rules = ""
     if strict_attach_mode:
         strict_rules = (
-            "STRICT ATTACH MODE: wallpaper must be edge-to-edge seamless tiling over large visible target area; "
+            "STRICT ATTACH MODE: product pattern must be edge-to-edge seamless tiling over large visible target area; "
             "forbid single enlarged patch/decal effect; preserve existing wall decorations and furnishings with proper occlusion; "
             "do not cover paintings/frames."
         )
-    roll_core_block = (
-        f"{ROLL_CORE_AI_PROMPT_EN} {ROLL_CORE_PATTERN_DIRECTION_EN} {ROLL_CORE_HERO_SCALE_EN}"
+    if packaging_form == "roll":
+        main_wall_hint = (
+            "Prefer a realistic interior wall application with seamless repeat across a broad area."
+        )
+        main_wall_hint2 = (
+            "Prefer a second wall/floor application view with seamless repeat and realistic perspective."
+        )
+    else:
+        main_wall_hint = (
+            "Prefer a realistic interior with the product as flat sheets or tile panels on the surface; "
+            "do NOT show a long wallpaper roll with cardboard core."
+        )
+        main_wall_hint2 = (
+            "Prefer a second wall/floor view with applied sheets/tiles and realistic perspective; no roll form factor."
+        )
+    chart_tile_w = tw
+    chart_tile_h = th
+    size_chart_layout = (
+        "Layout requirement: majority area must be measurement diagram (width/height arrows + numeric values), "
+        + (
+            f"show full unrolled length strip clearly, and add one {chart_tile_w:g}cm × {chart_tile_h:g}cm repeat swatch labeled as repeat unit."
+            if packaging_form == "roll"
+            else f"show sheet/piece or pack dimensions (not a long wallpaper roll strip), and add one {chart_tile_w:g}cm × {chart_tile_h:g}cm repeat swatch labeled as repeat unit."
+        )
     )
-    chart_tile_w = float(tile_width_cm or 58)
-    chart_tile_h = float(tile_height_cm or 58)
     size_chart_rules = (
         "Size chart must be production-grade for marketplace: clean white background, readable dark typography, "
         "high contrast ruler/arrow marks, and dimensions shown in BOTH cm and inch. "
@@ -512,36 +632,36 @@ def generate_suite_images_ai(
             "clear hierarchy, no decorative clutter."
         )
 
+    core_listing = f"{ref_block} {mat_block} {dim_block} {packaging_block}"
     main_prompts: list[str] = [
         f"Create marketplace MAIN hero image #1. Photorealistic, premium lighting, product dominant, clean background. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {roll_core_block} "
+        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} "
         f"Product story: {desc}. Dimensions context: {dims}.",
         f"Create marketplace MAIN hero image #2. Alternate angle for CTR, natural props only, product remains dominant. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {roll_core_block} Product story: {desc}.",
+        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
         f"Create marketplace MAIN hero image #3. Strong lifestyle composition while product remains clear and central. "
-        f"STRICT no labels/badges/text. Prefer a realistic interior wall application with seamless repeat across a broad area. "
-        f"{global_rules} {mode_rules} {strict_rules} {roll_core_block} Product story: {desc}.",
+        f"STRICT no labels/badges/text. {main_wall_hint} "
+        f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
         f"Create marketplace MAIN hero image #4. Emphasize texture quality and premium finish with realistic shadows. "
-        f"STRICT no labels/badges/text. Prefer a second wall/floor application view with seamless repeat and realistic perspective. "
-        f"{global_rules} {mode_rules} {strict_rules} {roll_core_block} Product story: {desc}.",
+        f"STRICT no labels/badges/text. {main_wall_hint2} "
+        f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
     ]
     detail_prompts: list[str] = [
         (
             "Create DETAIL size chart image for marketplace listing. "
             f"{size_chart_rules} Use ENGLISH only. Dimensions source: {dims}. "
-            "Layout requirement: majority area must be measurement diagram (width/height arrows + numeric values), "
-            f"show full product length strip clearly, and add one {chart_tile_w:g}cm × {chart_tile_h:g}cm repeat swatch labeled as repeat unit. "
+            f"{size_chart_layout} "
             "Do NOT allocate large area to lifestyle room render in this size chart image. "
-            f"Product story: {desc}. {global_rules} {mode_rules} {strict_rules}"
+            f"Product story: {desc}. {global_rules} {mode_rules} {strict_rules} {core_listing}"
         ),
         f"Create DETAIL image showing installation/use scenario with realistic home context. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {roll_core_block} Product story: {desc}.",
+        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
         f"Create DETAIL macro close-up image showing material texture and print fidelity. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {roll_core_block} Product story: {desc}.",
+        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
         f"Create DETAIL image with scale reference against common objects. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {roll_core_block} Dimensions context: {dims}.",
+        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Dimensions context: {dims}.",
         f"Create DETAIL image for package composition and accessories using visual composition only. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {roll_core_block} Product story: {desc}.",
+        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
     ]
     scene_rows: list[SceneImage] = []
     if scene_category_id:
@@ -581,15 +701,15 @@ def generate_suite_images_ai(
         if precise_hint:
             instr += f" Precise attach constraints: {precise_hint}"
         allow_text = i == 0
-        if i == 0 and product_width_cm and product_height_cm and tile_width_cm and tile_height_cm:
+        if i == 0 and pw is not None and ph is not None:
             img_bytes = _draw_size_chart_image(
                 source_image_bytes=source_for_ai,
                 out_w=sec_w,
                 out_h=sec_h,
-                product_w_cm=product_width_cm,
-                product_h_cm=product_height_cm,
-                tile_w_cm=tile_width_cm,
-                tile_h_cm=tile_height_cm,
+                product_w_cm=float(pw),
+                product_h_cm=float(ph),
+                tile_w_cm=float(tw),
+                tile_h_cm=float(th),
                 thickness_mm=_extract_thickness_mm(dims),
             )
             used_provider = "system"
@@ -629,12 +749,24 @@ def generate_suite_images_ai(
                     ai_service, provider_chain, source_for_ai, instr, allow_text=allow_text
                 )
             else:
+                if packaging_form == "roll":
+                    surface_apply = (
+                        "Render the wall covering applied on a realistic surface (wall/floor/kitchen as scene context), "
+                        "not an isolated product shot. Keep perspective and occlusion realistic. "
+                        "Cover a substantial visible wall/floor area with seamless repeated pattern, never one enlarged patch. "
+                    )
+                else:
+                    surface_apply = (
+                        "Render the product as flat sheets/tiles applied on a realistic surface "
+                        "(wall/floor/kitchen as scene context), not an isolated product shot. "
+                        "Keep perspective and occlusion realistic. Show plausible tiling of multiple pieces matching the "
+                        "reference artwork; do NOT depict a wallpaper roll or cardboard tube. "
+                    )
                 composite_hint = (
-                    f"{instr} Render the wallpaper applied on realistic surface (wall/floor/kitchen as scene context), "
-                    "not isolated product shot. Keep perspective and occlusion realistic. "
-                    "Cover a substantial visible wall/floor area with seamless repeated pattern, never one enlarged patch. "
-                    "Pattern repeat size must stay physically plausible for 58cm repeat unit (or provided repeat unit), "
-                    "show multiple repeats across target wall."
+                    f"{instr} {surface_apply}"
+                    "Pattern repeat size must stay physically plausible for the stated repeat unit "
+                    f"({chart_tile_w:g}cm × {chart_tile_h:g}cm or listing repeat); "
+                    "show multiple repeats across the target surface where applicable."
                 )
                 raw, used_provider = _composite_with_retry(
                     ai_service, provider_chain, source_for_ai, scene_bytes, composite_hint

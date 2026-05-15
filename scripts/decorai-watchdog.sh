@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# DecorAI 可用性守护进程：周期性检查后端 API + 前端 SPA；任一不可用则重启 app 容器。
+# DecorAI 可用性守护进程：周期性检查后端存活；连续失败则重启 app 容器。
+# 健康判定仅用 /api/health：长耗时 AI 任务已放到独立线程，主进程应始终可响应；避免误杀。
 #
 # 前台运行（调试）：
 #   bash scripts/decorai-watchdog.sh
@@ -19,6 +20,7 @@
 #   DECORAI_EDGE_URL          若设置则额外探测（如 http://127.0.0.1/ 走本机 Nginx）
 #   DECORAI_USE_PODMAN_HOST_COMPOSE=1  与 fix-server-502 一致，叠加 docker-compose.podman-host.yml
 #   DECORAI_RELOAD_NGINX_CMD  重启容器后执行的命令（默认空；可设为 "sudo systemctl reload nginx"）
+#   WATCHDOG_CONSEC_FAILS     连续探测失败几次才重启（默认 3，避免偶发抖动 / gzip 误判）
 
 set -u
 
@@ -26,6 +28,7 @@ DECORAI_HOME="${DECORAI_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 APP_PORT="${APP_PORT:-3000}"
 WATCHDOG_INTERVAL="${WATCHDOG_INTERVAL:-30}"
 WATCHDOG_MIN_RESTART_GAP="${WATCHDOG_MIN_RESTART_GAP:-120}"
+WATCHDOG_CONSEC_FAILS="${WATCHDOG_CONSEC_FAILS:-3}"
 CONTAINER="${DECORAI_CONTAINER:-decorai-app}"
 LOG="${DECORAI_WATCHDOG_LOG:-/tmp/decorai-watchdog.log}"
 
@@ -46,8 +49,10 @@ backend_ok() {
 }
 
 frontend_ok() {
-  local b="$(_base)"
-  curl -fsS --max-time 10 "${b}/" 2>/dev/null | grep -q 'id="app"'
+  local b="$(_base)" code
+  # 勿对 HTML 做 grep：上游若 gzip，管道内为二进制 → 恒失败 → 误杀容器 → 全站 502。
+  code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "${b}/" 2>/dev/null || true)"
+  [[ "$code" =~ ^2[0-9][0-9]$ ]]
 }
 
 edge_ok() {
@@ -56,7 +61,7 @@ edge_ok() {
 }
 
 all_ok() {
-  backend_ok && frontend_ok && edge_ok
+  backend_ok
 }
 
 _compose_files=(-f docker-compose.yml)
@@ -93,7 +98,7 @@ maybe_restart() {
   now=$(date +%s)
   if (( now - last_restart_ts < WATCHDOG_MIN_RESTART_GAP )) && [[ "$last_restart_ts" -ne 0 ]]; then
     log "skip restart (${reason}): within MIN_RESTART_GAP (${WATCHDOG_MIN_RESTART_GAP}s)"
-    return 0
+    return 2
   fi
   log "FAIL: ${reason} — restarting app"
   if restart_app; then
@@ -105,17 +110,25 @@ maybe_restart() {
 
 trap 'log "signal received, exiting"; exit 0' INT TERM
 
-log "start DECORAI_HOME=${DECORAI_HOME} APP_PORT=${APP_PORT} interval=${WATCHDOG_INTERVAL}s"
+log "start DECORAI_HOME=${DECORAI_HOME} APP_PORT=${APP_PORT} interval=${WATCHDOG_INTERVAL}s consec_fail_threshold=${WATCHDOG_CONSEC_FAILS}"
 
+consec_bad=0
 while true; do
   if all_ok; then
-    :
+    consec_bad=0
   else
     reasons=()
     backend_ok || reasons+=("backend")
     frontend_ok || reasons+=("frontend")
     edge_ok || reasons+=("edge:${DECORAI_EDGE_URL}")
-    maybe_restart "$(IFS=+; echo "${reasons[*]}")"
+    consec_bad=$((consec_bad + 1))
+    r="$(IFS=+; echo "${reasons[*]}")"
+    if [[ "$consec_bad" -ge "$WATCHDOG_CONSEC_FAILS" ]]; then
+      maybe_restart "$r"
+      consec_bad=0
+    else
+      log "probe miss (${r}) consec=${consec_bad}/${WATCHDOG_CONSEC_FAILS} (no restart yet)"
+    fi
   fi
   sleep "$WATCHDOG_INTERVAL"
 done

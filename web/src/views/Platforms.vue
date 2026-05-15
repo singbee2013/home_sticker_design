@@ -48,7 +48,11 @@
           </el-select>
         </div>
       </div>
-      <div class="muted">仅用于约束电商图视觉方向，系统会自主选择最佳构图，不会固定套用单一场景图。</div>
+        <div class="muted">仅用于约束电商图视觉方向，系统会自主选择最佳构图，不会固定套用单一场景图。</div>
+        <div class="muted" style="margin-top: 4px;">
+          默认按「片装 / 平张」理解产品；若实为卷筒壁纸，请在卖点里写明「卷装」或「wallpaper roll」。
+          「输出张数」会自动不低于「主图 + 详情图」之和，避免详情图被静默裁掉。
+        </div>
       <div class="row pair-row">
         <div class="pair-item">
           <div class="pair-label">生图模型</div>
@@ -257,15 +261,23 @@ const form = reactive({
 const computedTotalCount = computed(() => Number(form.main_image_count || 0) + Number(form.detail_image_count || 0))
 
 watch(
-  () => [form.output_count, form.main_image_count],
+  () => [form.output_count, form.main_image_count, form.detail_image_count],
   () => {
-    const output = Number(form.output_count || 0)
-    if (output <= 0) return
-    if (form.main_image_count > output) form.main_image_count = output
-    if (form.main_image_count < 1) form.main_image_count = 1
+    const main = Math.min(4, Math.max(1, Number(form.main_image_count || 1)))
+    form.main_image_count = main
+    let detail = Math.max(0, Math.min(11, Number(form.detail_image_count || 0)))
+    form.detail_image_count = detail
+    const need = main + detail
+    let output = Number(form.output_count || 0)
+    if (need > output) {
+      output = Math.min(12, Math.max(6, need))
+      form.output_count = output
+    }
+    if (main > output) {
+      form.main_image_count = Math.max(1, output - detail)
+    }
     const maxDetail = Math.max(0, output - Number(form.main_image_count || 1))
     if (Number(form.detail_image_count || 0) > maxDetail) form.detail_image_count = maxDetail
-    if (Number(form.detail_image_count || 0) < 0) form.detail_image_count = 0
   },
   { immediate: true },
 )
@@ -389,7 +401,9 @@ async function submitSuite() {
     if (enrichedDesc) fd.append('product_description', enrichedDesc)
     if (enrichedDims) fd.append('dimensions_spec', enrichedDims)
     if (form.provider) fd.append('provider', form.provider)
-    if (form.output_count) fd.append('output_count', String(form.output_count))
+    const needOut = Number(form.main_image_count || 1) + Number(form.detail_image_count || 0)
+    const outCount = Math.max(Number(form.output_count) || 0, needOut, 6)
+    fd.append('output_count', String(Math.min(12, outCount)))
     fd.append('main_image_count', String(form.main_image_count || 1))
     fd.append('detail_image_count', String(form.detail_image_count || 0))
     fd.append('generation_mode', form.generation_mode || 'balanced')
