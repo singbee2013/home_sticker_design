@@ -50,16 +50,62 @@ decorai_fix_dotenv_database_url() {
   fi
 }
 
+decorai_find_system_python() {
+  local c min="${DECORAI_MIN_PYTHON:-3.10}"
+  for c in python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$c" >/dev/null 2>&1; then
+      if "$c" -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)" 2>/dev/null; then
+        printf '%s\n' "$c"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
 decorai_python_bin() {
   if [[ -x "$DECORAI_ROOT/.venv/bin/python" ]]; then
     printf '%s\n' "$DECORAI_ROOT/.venv/bin/python"
-  elif [[ -x "$DECORAI_ROOT/.venv_local/bin/python" ]]; then
-    printf '%s\n' "$DECORAI_ROOT/.venv_local/bin/python"
-  elif command -v python3 >/dev/null 2>&1; then
-    printf '%s\n' python3
-  else
-    printf '%s\n' python
+    return 0
   fi
+  if [[ -x "$DECORAI_ROOT/.venv_local/bin/python" ]]; then
+    printf '%s\n' "$DECORAI_ROOT/.venv_local/bin/python"
+    return 0
+  fi
+  decorai_find_system_python || printf '%s\n' python3
+}
+
+decorai_ensure_venv() {
+  local py log venv_python
+  log="${DECORAI_LOG_DIR}/deploy/pip-install.log"
+  mkdir -p "$(dirname "$log")"
+  if [[ -x "$DECORAI_ROOT/.venv/bin/python" ]]; then
+    venv_python="$DECORAI_ROOT/.venv/bin/python"
+  else
+    py="$(decorai_find_system_python)" || {
+      decorai_log "ERROR: need Python 3.10+ (current: $(python3 -V 2>&1 || echo missing))"
+      decorai_log "Alibaba Cloud: sudo dnf install -y python3.11 python3.11-pip  OR  python3.12"
+      return 1
+    }
+    decorai_log "creating venv with $py (.venv)"
+    "$py" -m venv "$DECORAI_ROOT/.venv" >>"$log" 2>&1 || return 1
+    venv_python="$DECORAI_ROOT/.venv/bin/python"
+  fi
+  if ! "$venv_python" -c "import sys; assert sys.version_info[:2] >= (3,10)" 2>/dev/null; then
+    decorai_log "ERROR: .venv Python too old ($("$venv_python" -V 2>&1)). Remove .venv and reinstall with 3.10+"
+    return 1
+  fi
+  decorai_log "upgrading pip in venv…"
+  "$venv_python" -m pip install --upgrade pip setuptools wheel >>"$log" 2>&1
+  if ! "$venv_python" -c "import fastapi" 2>/dev/null; then
+    decorai_log "pip install -r requirements.txt (log=$log)"
+    "$venv_python" -m pip install -r "$DECORAI_ROOT/requirements.txt" >>"$log" 2>&1 || {
+      decorai_log "pip install failed — tail $log"
+      tail -n 30 "$log" >&2 || true
+      return 1
+    }
+  fi
+  printf '%s\n' "$venv_python"
 }
 
 decorai_log() {

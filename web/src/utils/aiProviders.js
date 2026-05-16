@@ -19,7 +19,7 @@ export function defaultProviderIfGeminiAvailable(names) {
 export function providerLabel(p) {
   const map = {
     mock: 'Mock（离线占位）',
-    gpt_image: 'gpt-image-2',
+    gpt_image: 'GPT Image 2 Plus',
     stable_diffusion: 'Stable Diffusion',
     midjourney: 'Midjourney',
     gemini: 'Gemini · Google AI',

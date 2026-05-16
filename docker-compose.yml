@@ -43,8 +43,10 @@ services:
 
       # ---- Public OpenAI fallback ----
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.gptsapi.net/v1}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-gpt-image-2-plus}
+      GPT_IMAGE_API_MODE: ${GPT_IMAGE_API_MODE:-gptsapi}
+      GPT_IMAGE_GPTSAPI_TEXT_TO_IMAGE_URL: ${GPT_IMAGE_GPTSAPI_TEXT_TO_IMAGE_URL:-https://api.gptsapi.net/api/v3/openai/gpt-image-2-plus/text-to-image}
       # ---- Google AI Studio / Gemini ----
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash-image}

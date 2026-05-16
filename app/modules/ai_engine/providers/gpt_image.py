@@ -12,6 +12,11 @@ Required env / config (see config/settings.yaml → ai.gpt_image):
   AZURE_OPENAI_DEPLOYMENT   e.g. gpt-image-1   (your deployment name)
   AZURE_OPENAI_API_VERSION  e.g. 2025-04-01-preview   (optional)
   AZURE_OPENAI_USE_ENTRA_ID true|false                (optional, default: auto)
+
+GPTsAPI gpt-image-2-plus (text-to-image proxy):
+  OPENAI_API_KEY            Bearer token from gptsapi.net
+  OPENAI_BASE_URL           https://api.gptsapi.net/v1  (auto-enables GPTsAPI mode)
+  GPT_IMAGE_GPTSAPI_TEXT_TO_IMAGE_URL  (optional override)
 """
 from __future__ import annotations
 
@@ -99,6 +104,26 @@ class GPTImageProvider(AIProvider):
             "OPENAI_IMAGE_MODEL", cfg.get("openai_model", "gpt-image-2")
         )
 
+        # GPTsAPI proxy: gpt-image-2-plus text-to-image (see user curl example)
+        default_gptsapi_url = (
+            "https://api.gptsapi.net/api/v3/openai/gpt-image-2-plus/text-to-image"
+        )
+        self.gptsapi_text_to_image_url: str = os.getenv(
+            "GPT_IMAGE_GPTSAPI_TEXT_TO_IMAGE_URL",
+            cfg.get("gptsapi_text_to_image_url", default_gptsapi_url),
+        ).strip()
+        self.gptsapi_image_to_image_url: str = os.getenv(
+            "GPT_IMAGE_GPTSAPI_IMAGE_TO_IMAGE_URL",
+            cfg.get("gptsapi_image_to_image_url", "").strip(),
+        )
+        mode = os.getenv("GPT_IMAGE_API_MODE", cfg.get("api_mode", "")).strip().lower()
+        if mode in ("gptsapi", "gptsapi_v3", "gpt-image-2-plus"):
+            self.use_gptsapi_v3 = True
+        elif "gptsapi.net" in self.openai_base_url and self.openai_api_key:
+            self.use_gptsapi_v3 = True
+        else:
+            self.use_gptsapi_v3 = bool(cfg.get("use_gptsapi_v3", False)) and bool(self.openai_api_key)
+
     # ---------- helpers ----------
     @staticmethod
     def _normalize_azure_endpoint(endpoint: str) -> str:
@@ -167,6 +192,61 @@ class GPTImageProvider(AIProvider):
         return f"{width}x{height}"
 
     @staticmethod
+    def _aspect_ratio(width: int, height: int) -> str:
+        """Map pixel size to GPTsAPI ``aspect_ratio`` (1:1, 3:2, 2:3, 16:9, 9:16)."""
+        w, h = max(int(width), 1), max(int(height), 1)
+        r = w / h
+        if abs(r - 1.0) < 0.12:
+            return "1:1"
+        if r >= 1.5:
+            return "16:9"
+        if r >= 1.15:
+            return "3:2"
+        if r <= 0.67:
+            return "9:16"
+        if r <= 0.85:
+            return "2:3"
+        return "1:1"
+
+    def _use_gptsapi(self) -> bool:
+        return bool(self.use_gptsapi_v3 and self.openai_api_key and self.gptsapi_text_to_image_url)
+
+    @staticmethod
+    def _decode_gptsapi_v3(resp_json: dict) -> bytes:
+        """Decode GPTsAPI / gpt-image-2-plus JSON (several proxy response shapes)."""
+        if not isinstance(resp_json, dict):
+            raise RuntimeError(f"Unexpected GPTsAPI response: {resp_json!r}")
+
+        for key in ("image", "b64_json", "base64", "output"):
+            val = resp_json.get(key)
+            if isinstance(val, str) and val.strip():
+                raw = val.strip()
+                if raw.startswith("data:"):
+                    raw = raw.split(",", 1)[-1]
+                return base64.b64decode(raw)
+
+        data = resp_json.get("data")
+        if isinstance(data, list) and data:
+            item = data[0]
+            if isinstance(item, dict):
+                if item.get("b64_json"):
+                    return base64.b64decode(item["b64_json"])
+                if item.get("url"):
+                    r = httpx.get(item["url"], timeout=120)
+                    r.raise_for_status()
+                    return r.content
+                if item.get("image"):
+                    return base64.b64decode(item["image"])
+
+        output = resp_json.get("output")
+        if isinstance(output, dict):
+            for key in ("image", "b64_json", "url"):
+                if output.get(key):
+                    return GPTImageProvider._decode_gptsapi_v3({"data": [output]})
+
+        raise RuntimeError(f"Unexpected GPTsAPI image response: {str(resp_json)[:500]}")
+
+    @staticmethod
     def _decode(resp_json: dict) -> bytes:
         item = resp_json["data"][0]
         if "b64_json" in item and item["b64_json"]:
@@ -181,6 +261,31 @@ class GPTImageProvider(AIProvider):
     def text_to_image(self, prompt: str, style_hint: str = "",
                       width: int = 1024, height: int = 1024, **kwargs) -> bytes:
         full_prompt = f"{style_hint} {prompt}".strip() if style_hint else prompt
+
+        if self._use_gptsapi():
+            body = {
+                "prompt": full_prompt,
+                "aspect_ratio": kwargs.get("aspect_ratio") or self._aspect_ratio(width, height),
+                "output_format": kwargs.get("output_format") or "png",
+            }
+            headers = {
+                "Authorization": f"Bearer {self.openai_api_key}",
+                "Content-Type": "application/json",
+            }
+            resp = httpx.post(
+                self.gptsapi_text_to_image_url,
+                headers=headers,
+                json=body,
+                timeout=180,
+            )
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"GPT-Image-2-Plus (GPTsAPI) text2img failed: {self._format_http_error(exc)}"
+                ) from exc
+            return self._decode_gptsapi_v3(resp.json())
+
         body = {
             "prompt": full_prompt,
             "size": self._size(width, height),
@@ -205,6 +310,36 @@ class GPTImageProvider(AIProvider):
                        style_hint: str = "", width: int = 1024, height: int = 1024,
                        **kwargs) -> bytes:
         full_prompt = f"{style_hint} {prompt}".strip() if style_hint else prompt
+
+        if self._use_gptsapi():
+            img_url = self.gptsapi_image_to_image_url or self.gptsapi_text_to_image_url.replace(
+                "text-to-image", "image-to-image"
+            )
+            body = {
+                "prompt": full_prompt,
+                "aspect_ratio": kwargs.get("aspect_ratio") or self._aspect_ratio(width, height),
+                "output_format": kwargs.get("output_format") or "png",
+            }
+            headers = {"Authorization": f"Bearer {self.openai_api_key}"}
+            # Try multipart if proxy supports reference image; else JSON-only.
+            files = {"image": ("ref.png", image_data, "image/png")}
+            data = {k: str(v) for k, v in body.items()}
+            resp = httpx.post(img_url, headers=headers, files=files, data=data, timeout=180)
+            if resp.status_code >= 400:
+                resp = httpx.post(
+                    img_url,
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=body,
+                    timeout=180,
+                )
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(
+                    f"GPT-Image-2-Plus (GPTsAPI) img2img failed: {self._format_http_error(exc)}"
+                ) from exc
+            return self._decode_gptsapi_v3(resp.json())
+
         files = {"image": ("ref.png", image_data, "image/png")}
         data = {
             "prompt": full_prompt,

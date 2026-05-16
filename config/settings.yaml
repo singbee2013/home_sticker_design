@@ -52,6 +52,12 @@ ai:
       openai_base_url: "https://api.openai.com/v1"
       openai_model: "gpt-image-2"
 
+      # === GPTsAPI 代理 gpt-image-2-plus（OPENAI_BASE_URL 含 gptsapi.net 时自动启用）===
+      # 文生图接口示例见项目文档；Key 使用环境变量 OPENAI_API_KEY
+      gptsapi_text_to_image_url: "https://api.gptsapi.net/api/v3/openai/gpt-image-2-plus/text-to-image"
+      gptsapi_image_to_image_url: ""   # 可选；留空则尝试把 text-to-image 路径改为 image-to-image
+      use_gptsapi_v3: false            # 或设 GPT_IMAGE_API_MODE=gptsapi
+
     siliconflow:
       api_url: "https://api.siliconflow.cn/v1"
       model: "Kwai-Kolors/Kolors"

@@ -98,17 +98,7 @@ _build_frontend_prod() {
 }
 
 _ensure_python_deps() {
-  local py log
-  py="$(decorai_python_bin)"
-  log="$DECORAI_LOG_DIR/deploy/pip-install.log"
-  if ! "$py" -c "import fastapi" 2>/dev/null; then
-    decorai_log "installing Python deps… (log=$log)"
-    if [[ ! -d .venv ]] && { [[ "$py" == python3 ]] || [[ "$py" == python ]]; }; then
-      python3 -m venv .venv 2>>"$log" || true
-      py="$(decorai_python_bin)"
-    fi
-    "$py" -m pip install -q -r requirements.txt >>"$log" 2>&1
-  fi
+  decorai_ensure_venv >/dev/null || exit 1
 }
 
 _start_prod_backend() {
