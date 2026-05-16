@@ -11,7 +11,7 @@ from app.common.precise_attach import (
     prepare_material_with_repeat_target,
     prepare_material_for_precise_attach,
 )
-from app.common.storage import get_storage
+from app.common.storage import get_storage, static_file_exists
 from app.modules.scene.models import SceneImage
 from .models import EffectCategory, EffectImage
 
@@ -301,6 +301,7 @@ def list_recent_effect_images(db: Session, limit: int = 200) -> list[dict]:
                 "effect_category_id": r.effect_category_id,
                 "category_name": cats.get(r.effect_category_id),
                 "file_path": r.file_path,
+                "file_exists": static_file_exists(r.file_path),
                 "prompt_used": r.prompt_used,
                 "title": r.title,
                 "created_by": r.created_by,

@@ -55,6 +55,24 @@ class LocalStorage(StorageBackend):
             full.unlink()
 
 
+def static_file_exists(path: str | None) -> bool:
+    """Whether a path under STORAGE_LOCAL_PATH exists on disk (for history UI)."""
+    if not path or not str(path).strip():
+        return False
+    s = get_settings()
+    root = Path(s.STORAGE_LOCAL_PATH)
+    if not root.is_absolute():
+        from app.config import PROJECT_ROOT
+
+        root = (PROJECT_ROOT / root).resolve()
+    full = (root / str(path).strip().lstrip("/")).resolve()
+    try:
+        full.relative_to(root.resolve())
+    except ValueError:
+        return False
+    return full.is_file()
+
+
 def get_storage() -> StorageBackend:
     s = get_settings()
     if s.STORAGE_TYPE == "local":

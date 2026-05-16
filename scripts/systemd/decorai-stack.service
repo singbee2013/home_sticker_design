@@ -1,0 +1,20 @@
+[Unit]
+Description=DecorAI production stack (container via start-all.sh prod)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/home_sticker_design_api
+
+Environment=DECORAI_ROOT=/home/admin/home_sticker_design_api
+Environment=DECORAI_LOG_DIR=/home/admin/home_sticker_design_api/logs
+
+ExecStart=/bin/bash /home/admin/home_sticker_design_api/scripts/start-all.sh prod
+ExecStop=/bin/bash /home/admin/home_sticker_design_api/scripts/stop-all.sh prod
+
+[Install]
+WantedBy=multi-user.target

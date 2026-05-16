@@ -5,7 +5,7 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
-from app.common.storage import get_storage
+from app.common.storage import get_storage, static_file_exists
 from .models import SceneCategory, SceneImage
 
 SCENE_PROMPT_PRESETS: list[str] = [
@@ -166,6 +166,7 @@ def list_recent_scene_images(db: Session, limit: int = 200) -> list[dict]:
                 "scene_category_id": r.scene_category_id,
                 "category_name": cats.get(r.scene_category_id),
                 "file_path": r.file_path,
+                "file_exists": static_file_exists(r.file_path),
                 "prompt_used": r.prompt_used,
                 "source_kind": r.source_kind,
                 "title": r.title,

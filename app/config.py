@@ -56,7 +56,10 @@ class Settings:
 
         storage = raw.get("storage", {})
         self.STORAGE_TYPE: str = storage.get("type", "local")
-        self.STORAGE_LOCAL_PATH: str = storage.get("local_path", "./static")
+        local_path = storage.get("local_path", "./static")
+        if local_path.startswith("./") or (local_path and local_path[0] not in "/"):
+            local_path = str((PROJECT_ROOT / local_path).resolve())
+        self.STORAGE_LOCAL_PATH: str = local_path
         self.STORAGE_BASE_URL: str = storage.get("base_url", "/static")
 
         ai = raw.get("ai", {})

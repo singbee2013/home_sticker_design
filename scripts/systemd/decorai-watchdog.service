@@ -1,5 +1,5 @@
 [Unit]
-Description=DecorAI availability watchdog (API + SPA; restart app on failure)
+Description=DecorAI health monitor (restart app on /api/health failure)
 After=network-online.target
 Wants=network-online.target
 
@@ -11,9 +11,11 @@ Group=admin
 WorkingDirectory=/home/admin/home_sticker_design_api
 
 Environment=DECORAI_HOME=/home/admin/home_sticker_design_api
+Environment=DECORAI_WATCHDOG_LOG=/home/admin/home_sticker_design_api/logs/monitor/watchdog.log
 Environment=APP_PORT=3000
 Environment=WATCHDOG_INTERVAL=30
 Environment=WATCHDOG_MIN_RESTART_GAP=120
+Environment=WATCHDOG_CONSEC_FAILS=3
 # 可选：经本机 Nginx 的入口自检（需与站点一致）
 # Environment=DECORAI_EDGE_URL=http://127.0.0.1/
 # 可选：rootless Podman 不稳时与 fix-server-502 一致

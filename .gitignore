@@ -27,3 +27,9 @@ data/*.db-journal
 # Generated media (regenerate on server)
 static/generated/
 static/uploads/
+
+# Runtime logs & pid files (see scripts/start-all.sh)
+logs/*
+!logs/.gitkeep
+run/*
+!run/.gitkeep

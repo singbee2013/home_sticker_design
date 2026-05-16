@@ -29,6 +29,7 @@ class TaskOut(BaseModel):
     prompt: Optional[str] = None
     status: str
     result_path: Optional[str] = None
+    file_exists: bool = True
     material_number: Optional[str] = None
     error_message: Optional[str] = None
     created_by: Optional[str] = None

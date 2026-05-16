@@ -1,4 +1,8 @@
 """Main entrypoint — FastAPI + Vue3 SPA single-process server."""
+from app.logging_setup import setup_logging
+
+setup_logging()
+
 from app.factory import create_app, mount_spa
 from app.database import SessionLocal
 from app.modules.auth.service import ensure_superadmin

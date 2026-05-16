@@ -1,0 +1,26 @@
+# 与 docker-compose.yml 叠加以消除「宿主机 Nginx(root) ↔ rootless Podman 端口映射」导致的间歇性 502。
+# 应用在宿主机上直接监听 127.0.0.1:3000（与常见 Nginx proxy_pass 一致），不经 rootlessport 转发。
+#
+# 启动示例：
+#   podman-compose -f docker-compose.yml -f docker-compose.podman-host.yml up -d --build app
+#
+# 注意：使用 host 网络后，compose 中的 ports 映射会被忽略；仅本机可访问 3000（外网仍走 80/443）。
+
+services:
+  app:
+    network_mode: host
+    command:
+      - python
+      - -m
+      - uvicorn
+      - main:app
+      - --host
+      - "127.0.0.1"
+      - --port
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 45s

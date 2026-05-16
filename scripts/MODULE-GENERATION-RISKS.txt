@@ -1,0 +1,32 @@
+各模块「生成」类请求说明（502 / 超时排查）
+============================================
+
+一、电商套图 POST /api/platform-suite/
+  - 行为：立刻创建记录并返回 JSON；大文件上传在内存中读完后再返回（一般 < 数秒）。
+  - 真正耗时的 AI 在后台线程跑；前端再轮询 GET /api/platform-suite/{id}。
+  - 若此处仍报 502：多为 Nginx 连不上 127.0.0.1:3000（容器未起 / 在 ~ 跑 compose）、
+    或 SELinux 禁止 nginx 连后端（setsebool httpd_can_network_connect 1）。
+  - 若 POST 成功但轮询一直 pending：看容器日志与 suite.error_message。
+
+二、AI 图案 POST /api/ai/text2img、POST /api/ai/img2img
+  - 异步后台任务 + 轮询任务状态；POST 本身应较快。
+  - 502 同上，多为基础设施。
+
+三、视频 POST /api/video/
+  - 异步后台；POST 较快。
+
+四、场景图库 POST /api/scenes/{id}/generate
+  - 同步：一次 HTTP 内完成整次生图（常 20–120s）。
+  - 易触发 Nginx proxy_read_timeout；请用 nginx 里较长超时（见 sticker-design.com.conf.remote）。
+
+五、效果图 POST /api/effects/composite
+  - 同步：多场景会多次调模型，总时间可能很长（数分钟）。
+  - 最容易因超时表现为 502/504；务必拉长 /api/ 超时并保证上游稳定。
+
+六、广告素材 POST /api/ad-material/generate
+  - 同步：单次生图，中等时长；同样受 Nginx 超时影响。
+
+部署提醒
+--------
+- 线上 /etc/nginx/conf.d/*.conf 需与仓库 nginx/sticker-design.com.conf.remote 对齐（至少 /api/ 超时 ≥900s）。
+- 修改后：sudo nginx -t && sudo systemctl reload nginx

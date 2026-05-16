@@ -13,18 +13,21 @@
             <div class="check-wrap" v-if="t.result_path">
               <el-checkbox :model-value="selectedPaths.includes(t.result_path)" @change="() => toggleSelected(t.result_path)" />
             </div>
+            <div v-if="t.result_path && !fileOk(t)" class="thumb thumb-missing">
+              <div class="thumb-missing-inner">原图文件已丢失<br /><small>请重新生成</small></div>
+            </div>
             <el-image
-              v-if="t.result_path"
+              v-else-if="t.result_path"
               :src="toStatic(t.result_path)"
-              :preview-src-list="materials.filter(x => x.result_path).map(x => toStatic(x.result_path))"
-              :initial-index="materials.filter(x => x.result_path).findIndex(x => x.id === t.id)"
+              :preview-src-list="materials.filter(x => x.result_path && fileOk(x)).map(x => toStatic(x.result_path))"
+              :initial-index="materials.filter(x => x.result_path && fileOk(x)).findIndex(x => x.id === t.id)"
               class="thumb"
               fit="cover"
             />
             <div class="cap">#{{ t.id }} · {{ t.provider }} · {{ t.status }}</div>
             <div class="desc">{{ t.prompt || '（无文字说明）' }}</div>
             <div class="ops" v-if="t.result_path">
-              <el-button size="small" @click="downloadFile(toStatic(t.result_path), `material_${t.id}`)">下载原图</el-button>
+              <el-button size="small" :disabled="!fileOk(t)" @click="downloadFile(toStatic(t.result_path), `material_${t.id}`)">下载原图</el-button>
               <el-button size="small" type="danger" @click="removeMaterial(t.id)">删除</el-button>
             </div>
           </div>
@@ -37,17 +40,21 @@
             <div class="check-wrap">
               <el-checkbox :model-value="selectedPaths.includes(t.file_path)" @change="() => toggleSelected(t.file_path)" />
             </div>
+            <div v-if="!fileOk(t)" class="thumb thumb-missing">
+              <div class="thumb-missing-inner">原图文件已丢失<br /><small>请重新生成</small></div>
+            </div>
             <el-image
+              v-else
               :src="toStatic(t.file_path)"
-              :preview-src-list="scenes.map(x => toStatic(x.file_path))"
-              :initial-index="scenes.findIndex(x => x.id === t.id)"
+              :preview-src-list="scenes.filter(fileOk).map(x => toStatic(x.file_path))"
+              :initial-index="scenes.filter(fileOk).findIndex(x => x.id === t.id)"
               class="thumb"
               fit="cover"
             />
             <div class="cap">#{{ t.id }} · {{ t.category_name || '未分类' }}</div>
             <div class="desc">{{ t.prompt_used || t.title || '（无文字说明）' }}</div>
             <div class="ops">
-              <el-button size="small" @click="downloadFile(toStatic(t.file_path), `scene_${t.id}`)">下载原图</el-button>
+              <el-button size="small" :disabled="!fileOk(t)" @click="downloadFile(toStatic(t.file_path), `scene_${t.id}`)">下载原图</el-button>
               <el-button size="small" type="danger" @click="removeScene(t.id)">删除</el-button>
             </div>
           </div>
@@ -60,17 +67,21 @@
             <div class="check-wrap">
               <el-checkbox :model-value="selectedPaths.includes(t.file_path)" @change="() => toggleSelected(t.file_path)" />
             </div>
+            <div v-if="!fileOk(t)" class="thumb thumb-missing">
+              <div class="thumb-missing-inner">原图文件已丢失<br /><small>请重新生成</small></div>
+            </div>
             <el-image
+              v-else
               :src="toStatic(t.file_path)"
-              :preview-src-list="effects.map(x => toStatic(x.file_path))"
-              :initial-index="effects.findIndex(x => x.id === t.id)"
+              :preview-src-list="effects.filter(fileOk).map(x => toStatic(x.file_path))"
+              :initial-index="effects.filter(fileOk).findIndex(x => x.id === t.id)"
               class="thumb"
               fit="cover"
             />
             <div class="cap">#{{ t.id }} · {{ t.category_name || '未分类' }}</div>
             <div class="desc">{{ t.prompt_used || t.title || '（无文字说明）' }}</div>
             <div class="ops">
-              <el-button size="small" @click="downloadFile(toStatic(t.file_path), `effect_${t.id}`)">下载原图</el-button>
+              <el-button size="small" :disabled="!fileOk(t)" @click="downloadFile(toStatic(t.file_path), `effect_${t.id}`)">下载原图</el-button>
               <el-button size="small" type="danger" @click="removeEffect(t.id)">删除</el-button>
             </div>
           </div>
@@ -141,6 +152,13 @@ const suitePreviewSrc = ref('')
 
 function toStatic(p) {
   return p ? `/static/${p}` : ''
+}
+
+/** Backend sets file_exists; default true for older API responses. */
+function fileOk(row) {
+  if (row?.file_exists === false) return false
+  const path = row?.result_path || row?.file_path
+  return Boolean(path)
 }
 
 async function loadAll() {
@@ -298,6 +316,18 @@ loadAll()
 .card { position: relative; border: 1px solid #ebeef5; border-radius: 10px; overflow: hidden; background: #fff; }
 .check-wrap { position: absolute; top: 6px; right: 6px; z-index: 2; background: rgba(255,255,255,.9); border-radius: 6px; padding: 2px 6px; }
 .thumb { width: 100%; aspect-ratio: 1/1; display: block; }
+.thumb-missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f7fa;
+  border: 1px dashed #dcdfe6;
+  color: #909399;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+}
+.thumb-missing-inner small { color: #c0c4cc; }
 .cap { padding: 8px; font-size: 12px; color: #606266; }
 .desc { padding: 0 8px 8px; font-size: 12px; color: #909399; min-height: 34px; line-height: 1.4; }
 .ops { display: flex; gap: 8px; padding: 0 8px 10px; }

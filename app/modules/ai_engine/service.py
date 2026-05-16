@@ -9,7 +9,7 @@ from typing import Dict, Type
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.common.storage import get_storage
+from app.common.storage import get_storage, static_file_exists
 from .models import GenerationTask
 from .schemas import TaskOut
 from .providers import AIProvider
@@ -204,6 +204,7 @@ def tasks_to_out(db: Session, tasks: list[GenerationTask]) -> list[TaskOut]:
                 prompt=t.prompt,
                 status=t.status,
                 result_path=t.result_path,
+                file_exists=static_file_exists(t.result_path),
                 material_number=t.material_number,
                 error_message=t.error_message,
                 created_by=t.created_by,
