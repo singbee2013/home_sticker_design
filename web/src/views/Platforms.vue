@@ -211,14 +211,13 @@ import { computed, reactive, ref, watch } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import http from '@/api/http'
-import { defaultProviderIfGeminiAvailable, providerLabel, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { defaultStandardProvider, initStandardProviderList, providerLabel } from '@/utils/aiProviders'
 import { formatDateTimeBeijing } from '@/utils/datetime'
 
 const platforms = ref({})
 const suites = ref([])
-const providers = ref([])
+const providers = ref(initStandardProviderList())
 const sceneCategoryOptions = ref([])
-const ENABLED_PROVIDERS = ['gemini', 'siliconflow', 'wanxiang']
 const fileRaw = ref(null)
 const textureRaw = ref(null)
 const submitting = ref(false)
@@ -240,7 +239,7 @@ const form = reactive({
   spec_height_cm: null,
   thickness_mm: null,
   surface_texture_note: '',
-  provider: 'gemini',
+  provider: 'gpt_image',
   generation_mode: 'balanced',
   strict_attach_mode: true,
   output_count: 10,
@@ -354,15 +353,9 @@ async function load() {
     const tree = await http.get('/scenes/tree')
     sceneCategoryOptions.value = flattenSceneSecondary(tree)
   } catch {}
-  try {
-    const r = await http.get('/ai/providers')
-    const raw = (r.providers || []).filter((x) => ENABLED_PROVIDERS.includes(x))
-    providers.value = sortProvidersGeminiFirst(raw)
-    form.provider = defaultProviderIfGeminiAvailable(providers.value)
-  } catch {
-    providers.value = ['gemini']
-    form.provider = 'gemini'
-  }
+  providers.value = initStandardProviderList()
+  if (!providers.value.includes(form.provider))
+    form.provider = defaultStandardProvider(providers.value)
 }
 
 function sleep(ms) {

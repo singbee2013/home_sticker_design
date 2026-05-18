@@ -24,7 +24,7 @@
               class="thumb"
               fit="cover"
             />
-            <div class="cap">#{{ t.id }} · {{ t.provider }} · {{ t.status }}</div>
+            <div class="cap" translate="no">#{{ t.id }} · {{ providerLabel(t.provider) }} · {{ t.status }}</div>
             <div class="desc">{{ t.prompt || '（无文字说明）' }}</div>
             <div class="ops" v-if="t.result_path">
               <el-button size="small" :disabled="!fileOk(t)" @click="downloadFile(toStatic(t.result_path), `material_${t.id}`)">下载原图</el-button>
@@ -138,6 +138,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
+import { providerLabel } from '@/utils/aiProviders'
 
 const tab = ref('material')
 const materials = ref([])

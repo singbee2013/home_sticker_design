@@ -134,7 +134,7 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { defaultProviderIfGeminiAvailable, providerLabel, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { defaultStandardProvider, initStandardProviderList, providerLabel } from '@/utils/aiProviders'
 
 const tree = ref([])
 const images = ref([])
@@ -144,7 +144,6 @@ const sceneCategoryTree = ref([])
 const sceneCategoryOptions = ref([])
 const sceneCategoryId = ref(null)
 const scenePick = ref([])
-const ENABLED_PROVIDERS = ['gemini', 'siliconflow', 'wanxiang']
 const pickedSceneIds = ref([])
 const matFile = ref(null)
 const effectCatId = ref(null)
@@ -156,8 +155,8 @@ const tileHeightCm = ref(null)
 const targetSurfaceType = ref('wall')
 const keepPatternScale = ref(true)
 const fillTargetSurface = ref(true)
-const providers = ref([])
-const provider = ref('gemini')
+const providers = ref(initStandardProviderList())
+const provider = ref('gpt_image')
 const busy = ref(false)
 
 function flattenCats(nodes, prefix = '', acc = []) {
@@ -212,15 +211,9 @@ async function loadAll() {
   } catch {
     ElMessage.error('加载场景分类失败')
   }
-  try {
-    const r = await http.get('/ai/providers')
-    const raw = (r.providers || []).filter((x) => ENABLED_PROVIDERS.includes(x))
-    providers.value = sortProvidersGeminiFirst(raw)
-    provider.value = defaultProviderIfGeminiAvailable(providers.value)
-  } catch {
-    providers.value = ['gemini']
-    provider.value = 'gemini'
-  }
+  providers.value = initStandardProviderList()
+  if (!providers.value.includes(provider.value))
+    provider.value = defaultStandardProvider(providers.value)
 }
 
 async function loadScenePicker() {

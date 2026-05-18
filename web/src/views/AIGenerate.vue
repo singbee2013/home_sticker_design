@@ -19,8 +19,8 @@
             >
               <el-option v-for="p in orderedProviders" :key="p" :label="providerLabel(p)" :value="p" />
             </el-select>
-            <div class="hint">
-              文生图与参考图生图均从此处选择。支持 <code>gpt_image</code> / <code>gemini</code> / <code>siliconflow</code> / <code>wanxiang</code>。
+            <div class="hint" translate="no">
+              文生图与参考图生图均从此处选择，支持 GPT Image 2 plus、Gemini nano banana、SiliconFlow、通义万相。
             </div>
           </el-form-item>
 
@@ -165,7 +165,7 @@
                 <span>风格：{{ t.style_name || '—' }}</span>
                 <span>类目：{{ t.category_name || '—' }}</span>
               </div>
-              <div class="sub">{{ t.provider }} · <el-tag size="small" :type="statusTag(t.status)">{{ t.status }}</el-tag></div>
+              <div class="sub" translate="no">{{ providerShortLabel(t.provider) }} · <el-tag size="small" :type="statusTag(t.status)">{{ t.status }}</el-tag></div>
             </div>
           </div>
         </div>
@@ -181,15 +181,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import * as aiApi from '@/api/ai'
 import * as metaApi from '@/api/meta'
 import {
-  defaultProviderIfGeminiAvailable,
+  defaultStandardProvider,
+  initStandardProviderList,
   providerLabel,
   providerShortLabel,
-  sortProvidersGeminiFirst,
 } from '@/utils/aiProviders'
 
-const providers = ref([])
-const orderedProviders = computed(() => sortProvidersGeminiFirst(providers.value))
-const ENABLED_PROVIDERS = ['gemini', 'gpt_image', 'siliconflow', 'wanxiang']
+const providers = ref(initStandardProviderList())
+const orderedProviders = computed(() => providers.value)
 const styles = ref([])
 const categories = ref([])
 const generating = ref(false)
@@ -198,7 +197,7 @@ const history = ref([])
 const refFile = ref(null)
 
 const form = reactive({
-  provider: 'gemini',
+  provider: 'gpt_image',
   prompt: '',
   style: null,
   category: null,
@@ -269,12 +268,9 @@ function onPickFile(file) { refFile.value = file.raw }
 function onExceed() { ElMessage.warning('一次仅上传一张参考图') }
 
 async function loadAll() {
-  try {
-    const p = await aiApi.listProviders()
-    const filtered = (p.providers || []).filter((x) => ENABLED_PROVIDERS.includes(x))
-    providers.value = filtered
-    form.provider = defaultProviderIfGeminiAvailable(sortProvidersGeminiFirst(filtered))
-  } catch {}
+  providers.value = initStandardProviderList()
+  if (!providers.value.includes(form.provider))
+    form.provider = defaultStandardProvider(providers.value)
   try { styles.value = await metaApi.listStyles() } catch {}
   try {
     const tree = await metaApi.listCategoryTree()

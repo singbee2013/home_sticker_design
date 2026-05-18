@@ -33,7 +33,7 @@
             <div v-else class="placeholder"><el-icon><Picture /></el-icon></div>
             <div class="meta">
               <div class="prompt">{{ t.prompt || '未命名' }}</div>
-              <div class="sub">#{{ t.id }} · {{ t.provider }} · {{ t.status }}</div>
+              <div class="sub" translate="no">#{{ t.id }} · {{ providerLabel(t.provider) }} · {{ t.status }}</div>
             </div>
           </div>
         </div>
@@ -66,6 +66,7 @@ import StatCard from '@/components/StatCard.vue'
 import QuickEntry from '@/components/QuickEntry.vue'
 import { useUserStore } from '@/stores/user'
 import * as aiApi from '@/api/ai'
+import { providerLabel } from '@/utils/aiProviders'
 
 const user = useUserStore()
 const recentTasks = ref([])

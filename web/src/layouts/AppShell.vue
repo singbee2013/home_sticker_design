@@ -6,7 +6,7 @@
         <div class="brand-logo">
           <svg viewBox="0 0 32 32" width="22" height="22"><rect width="32" height="32" rx="7" fill="#0F5F4C"/><path d="M9 22 L16 8 L23 22 Z" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/><circle cx="16" cy="18" r="2.5" fill="#3FE0B5"/></svg>
         </div>
-        <span class="brand-name" v-show="!collapsed">DecorAI</span>
+        <span class="brand-name" v-show="!collapsed" translate="no">DecorAI</span>
         <el-button text class="collapse-btn" @click="collapsed = !collapsed" :icon="collapsed ? Expand : Fold" />
       </div>
 
@@ -21,7 +21,7 @@
             active-class="active"
           >
             <el-icon class="nav-icon"><component :is="it.icon" /></el-icon>
-            <span class="nav-label" v-show="!collapsed">{{ it.label }}</span>
+            <span class="nav-label" v-show="!collapsed" translate="no">{{ it.label }}</span>
           </router-link>
         </template>
       </nav>
@@ -42,7 +42,7 @@
       <header class="topbar">
         <div class="topbar-title">
           <h1 class="page-heading">
-            <span class="title-main">{{ pageTitle }}</span>
+            <span class="title-main" translate="no">{{ pageTitle }}</span>
             <template v-if="pageSubtitle">
               <span class="title-sep" aria-hidden="true">·</span>
               <span class="title-sub">{{ pageSubtitle }}</span>

@@ -84,18 +84,17 @@ import { reactive, ref } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { defaultProviderIfGeminiAvailable, providerLabel, sortProvidersGeminiFirst } from '@/utils/aiProviders'
+import { defaultStandardProvider, initStandardProviderList, providerLabel } from '@/utils/aiProviders'
 
 const tree = ref([])
 const images = ref([])
 const selectedCatId = ref(null)
 const presets = ref([])
 const uploadFiles = ref([])
-const providers = ref([])
-const ENABLED_PROVIDERS = ['gemini', 'siliconflow', 'wanxiang']
+const providers = ref(initStandardProviderList())
 
 const gen = reactive({
-  provider: 'gemini',
+  provider: 'gpt_image',
   mode: 'lifestyle',
   prompt: '',
   count: 1,
@@ -118,15 +117,9 @@ async function loadAll() {
   } catch {
     /* ignore */
   }
-  try {
-    const r = await http.get('/ai/providers')
-    const raw = (r.providers || []).filter((x) => ENABLED_PROVIDERS.includes(x))
-    providers.value = sortProvidersGeminiFirst(raw)
-    gen.provider = defaultProviderIfGeminiAvailable(providers.value)
-  } catch {
-    providers.value = ['gemini']
-    gen.provider = 'gemini'
-  }
+  providers.value = initStandardProviderList()
+  if (!providers.value.includes(gen.provider))
+    gen.provider = defaultStandardProvider(providers.value)
 }
 
 async function onNodeClick(node) {
