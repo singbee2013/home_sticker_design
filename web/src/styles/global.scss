@@ -84,3 +84,17 @@ a { color: inherit; text-decoration: none; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border-line); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* 生图模型英文名：防止 Chrome 将 Gemini nano banana 译成「双子座纳米香蕉」 */
+.ai-provider-select,
+.ai-provider-select-popper,
+.ai-provider-select-popper *,
+.notranslate,
+.notranslate * {
+  translate: no !important;
+}
+
+.ai-provider-select .el-select__selected-item,
+.ai-provider-select .provider-option-text {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}

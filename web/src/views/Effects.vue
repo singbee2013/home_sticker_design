@@ -23,9 +23,7 @@
       </div>
       <div class="row">
         <div class="lbl">生图模型</div>
-        <el-select v-model="provider" placeholder="选择模型" class="w320" translate="no">
-          <el-option v-for="p in providers" :key="p" :label="providerLabel(p)" :value="p" />
-        </el-select>
+        <AiProviderSelect v-model="provider" placeholder="选择模型" class="w320" :providers="providers" />
       </div>
       <div class="row">
         <div class="lbl">贴合提示（可选）</div>
@@ -134,7 +132,8 @@
 import { ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { defaultStandardProvider, initStandardProviderList, providerLabel } from '@/utils/aiProviders'
+import AiProviderSelect from '@/components/AiProviderSelect.vue'
+import { defaultStandardProvider, initStandardProviderList } from '@/utils/aiProviders'
 
 const tree = ref([])
 const images = ref([])

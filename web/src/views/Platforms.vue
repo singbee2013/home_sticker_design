@@ -56,9 +56,7 @@
       <div class="row pair-row">
         <div class="pair-item">
           <div class="pair-label">生图模型</div>
-          <el-select v-model="form.provider" placeholder="生图模型" class="fld compact-fld" translate="no">
-            <el-option v-for="p in providers" :key="p" :label="providerLabel(p)" :value="p" />
-          </el-select>
+          <AiProviderSelect v-model="form.provider" placeholder="生图模型" class="fld compact-fld" :providers="providers" />
         </div>
         <div class="pair-item">
           <div class="pair-label">生成策略</div>
@@ -211,7 +209,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import http from '@/api/http'
-import { defaultStandardProvider, initStandardProviderList, providerLabel } from '@/utils/aiProviders'
+import AiProviderSelect from '@/components/AiProviderSelect.vue'
+import { defaultStandardProvider, initStandardProviderList } from '@/utils/aiProviders'
 import { formatDateTimeBeijing } from '@/utils/datetime'
 
 const platforms = ref({})

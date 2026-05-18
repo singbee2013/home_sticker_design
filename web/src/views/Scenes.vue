@@ -23,9 +23,7 @@
         <div class="sec-title">生成 / 上传（当前分类 ID：{{ selectedCatId ?? '未选择' }}）</div>
 
         <div class="gen-bar">
-          <el-select v-model="gen.provider" class="w320" placeholder="生图模型" translate="no">
-            <el-option v-for="p in providers" :key="p" :label="providerLabel(p)" :value="p" />
-          </el-select>
+          <AiProviderSelect v-model="gen.provider" class="w320" placeholder="生图模型" :providers="providers" />
           <el-radio-group v-model="gen.mode" size="small">
             <el-radio-button label="lifestyle" value="lifestyle">真实生活场景</el-radio-button>
             <el-radio-button label="studio_white" value="studio_white">数码白底商品棚拍</el-radio-button>
@@ -84,7 +82,8 @@ import { reactive, ref } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '@/api/http'
-import { defaultStandardProvider, initStandardProviderList, providerLabel } from '@/utils/aiProviders'
+import AiProviderSelect from '@/components/AiProviderSelect.vue'
+import { defaultStandardProvider, initStandardProviderList } from '@/utils/aiProviders'
 
 const tree = ref([])
 const images = ref([])

@@ -10,15 +10,12 @@
 
         <el-form label-position="top" :model="form">
           <el-form-item label="生图模型">
-            <el-select
+            <AiProviderSelect
               v-model="form.provider"
               size="large"
-              class="w-full provider-select"
-              translate="no"
-              :key="orderedProviders.join(',')"
-            >
-              <el-option v-for="p in orderedProviders" :key="p" :label="providerLabel(p)" :value="p" />
-            </el-select>
+              class="w-full"
+              :providers="orderedProviders"
+            />
             <div class="hint" translate="no">
               文生图与参考图生图均从此处选择，支持 GPT Image 2 plus、Gemini nano banana、SiliconFlow、通义万相。
             </div>
@@ -180,10 +177,10 @@ import { MagicStick, UploadFilled, Picture, Loading, Download, Delete } from '@e
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as aiApi from '@/api/ai'
 import * as metaApi from '@/api/meta'
+import AiProviderSelect from '@/components/AiProviderSelect.vue'
 import {
   defaultStandardProvider,
   initStandardProviderList,
-  providerLabel,
   providerShortLabel,
 } from '@/utils/aiProviders'
 
