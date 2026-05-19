@@ -194,12 +194,47 @@ def _sheet_hero_block(pw: float | None, ph: float | None) -> str:
     )
 
 
-def _material_light_geometry_block() -> str:
-    return (
+def _material_light_geometry_block(desc: str = "") -> str:
+    base = (
         "MATERIAL / LIGHT / GEOMETRY: Match the reference photo's gloss level—if the surface is glossy with clear specular "
         "highlights, keep that bright reflective look; if it is matte, keep matte. Do NOT randomly switch gloss↔matte. "
         "Preserve apparent 3D relief, bevels, thickness, and camera perspective from the reference—do NOT re-flatten into a "
         "fake 2D poster or a different product shape."
+    )
+    return base + " " + _epoxy_3d_block(desc)
+
+
+def _epoxy_3d_block(desc: str) -> str:
+    if not re.search(r"滴胶|立体|3d|epoxy|resin|凸起|gel\s*dom", desc or "", re.I):
+        return ""
+    return (
+        "3D EPOXY / GEL DOMING (MANDATORY): Each tile shows raised gel/epoxy dome with visible height, curved specular "
+        "highlights, and depth—identical to the reference bump map; never flatten to 2D matte print or plain ceramic."
+    )
+
+
+def _amazon_main_image_rules() -> str:
+    return (
+        "AMAZON MAIN IMAGE COMPLIANCE: Pure white background RGB(255,255,255). Product only—no room, no props, "
+        "no hands, no text, no badges, no inset thumbnail. Product must fill at least 85% of the frame."
+    )
+
+
+def _amazon_detail_image_rules() -> str:
+    return (
+        "AMAZON DETAIL IMAGE: Full square composition—subject fills the frame edge-to-edge. "
+        "FORBIDDEN: tiny product floating in the center with huge empty white margins (postage-stamp layout)."
+    )
+
+
+def _physical_scale_block(pw: float | None, ph: float | None, context: str = "") -> str:
+    if not (pw and ph):
+        return ""
+    ctx = f" {context}" if context else ""
+    return (
+        f"PHYSICAL SCALE{ctx}: One sellable sheet/panel is exactly {pw:g} cm wide × {ph:g} cm tall. "
+        f"When shown on a kitchen backsplash, each applied sheet occupies roughly {pw:g}×{ph:g} cm of wall area—"
+        "NOT half size, NOT toy scale. Hands holding a sheet must show a panel of that size relative to adult hands."
     )
 
 
@@ -218,18 +253,55 @@ def _dimension_plausibility_block(dims: str, product_w_cm: float | None, product
     )
 
 
-def resize_and_save(image_bytes: bytes, width: int, height: int, fmt: str = "PNG") -> bytes:
-    """Fit inside platform frame with white letterbox — avoid stretching product aspect ratio."""
-    img = Image.open(io.BytesIO(image_bytes))
-    fmt_u = fmt.upper()
+def _trim_near_white_borders(img: Image.Image, threshold: int = 248) -> Image.Image:
+    """Crop excess white margins from AI outputs so export can fill the listing canvas."""
     if img.mode != "RGBA":
         img = img.convert("RGBA")
-    fitted = img.copy()
-    fitted.thumbnail((width, height), Image.LANCZOS)
+    gray = img.convert("L")
+    mask = gray.point(lambda p: 255 if p < threshold else 0)
+    bbox = mask.getbbox()
+    if bbox:
+        return img.crop(bbox)
+    return img
+
+
+def export_listing_image(
+    image_bytes: bytes,
+    width: int,
+    height: int,
+    fmt: str = "PNG",
+    *,
+    fill_ratio: float = 0.90,
+    fit_mode: str = "cover",
+    trim_borders: bool = True,
+) -> bytes:
+    """Export to platform pixels; trim AI margins and fill frame (avoid thumbnail-in-white look)."""
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    if trim_borders:
+        img = _trim_near_white_borders(img)
+    fill_ratio = max(0.70, min(float(fill_ratio), 0.98))
+    max_w = max(1, int(width * fill_ratio))
+    max_h = max(1, int(height * fill_ratio))
+    sw = max_w / max(img.width, 1)
+    sh = max_h / max(img.height, 1)
+    if fit_mode == "contain":
+        scale = min(sw, sh)
+    else:
+        scale = max(sw, sh)
+    new_w = max(1, int(img.width * scale))
+    new_h = max(1, int(img.height * scale))
+    resized = img.resize((new_w, new_h), Image.LANCZOS)
     canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
-    ox = (width - fitted.width) // 2
-    oy = (height - fitted.height) // 2
-    canvas.alpha_composite(fitted, (ox, oy))
+    if new_w > width or new_h > height:
+        left = max(0, (new_w - width) // 2)
+        top = max(0, (new_h - height) // 2)
+        cropped = resized.crop((left, top, left + width, top + height))
+        canvas.alpha_composite(cropped, (0, 0))
+    else:
+        ox = (width - new_w) // 2
+        oy = (height - new_h) // 2
+        canvas.alpha_composite(resized, (ox, oy))
+    fmt_u = fmt.upper()
     out = canvas.convert("RGB" if fmt_u == "JPEG" else "RGBA")
     buf = io.BytesIO()
     if fmt_u == "JPEG":
@@ -237,6 +309,13 @@ def resize_and_save(image_bytes: bytes, width: int, height: int, fmt: str = "PNG
     else:
         out.save(buf, format=fmt_u)
     return buf.getvalue()
+
+
+def resize_and_save(image_bytes: bytes, width: int, height: int, fmt: str = "PNG") -> bytes:
+    """Legacy alias — product shots use contain; AI lifestyle uses cover via export_listing_image."""
+    return export_listing_image(
+        image_bytes, width, height, fmt, fill_ratio=0.88, fit_mode="contain", trim_borders=True
+    )
 
 
 def _blend_texture_reference(material_bytes: bytes, texture_bytes: bytes | None) -> bytes:
@@ -560,8 +639,12 @@ def generate_suite_images_ai(
     sheet_hero = _sheet_hero_block(pw, ph) if packaging_form == "sheet" else ""
     packaging_block = _packaging_block(packaging_form)
     ref_block = _reference_fidelity_block()
-    mat_block = _material_light_geometry_block()
+    mat_block = _material_light_geometry_block(desc)
     dim_block = _dimension_plausibility_block(dims, pw, ph)
+    scale_block = _physical_scale_block(pw, ph)
+    platform_code = (suite.platform_code or "").lower()
+    amazon_main_rules = _amazon_main_image_rules() if platform_code == "amazon" else ""
+    amazon_detail_rules = _amazon_detail_image_rules() if platform_code == "amazon" else ""
     precise_hint = ""
     source_for_ai = source_image_bytes
     source_for_ai = _blend_texture_reference(source_for_ai, texture_bytes)
@@ -659,21 +742,21 @@ def generate_suite_images_ai(
             "clear hierarchy, no decorative clutter."
         )
 
-    core_listing = f"{ref_block} {mat_block} {dim_block} {packaging_block} {sheet_hero}"
+    core_listing = f"{ref_block} {mat_block} {dim_block} {scale_block} {packaging_block} {sheet_hero}"
     main_prompts: list[str] = [
-        f"Create marketplace MAIN hero image #1. Photorealistic, premium lighting, product dominant, clean background. "
+        f"Create marketplace MAIN hero image #1. {amazon_main_rules} "
+        f"Photorealistic, premium lighting, product dominant, pure white background. "
         f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} "
         f"Product story: {desc}. Dimensions context: {dims}.",
-        f"Create marketplace MAIN hero image #2. Alternate angle for CTR; product sheet must still match reference pattern. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
-        f"Create marketplace MAIN hero image #3. Lifestyle context allowed ONLY if the applied pattern on the wall/surface "
-        f"matches the reference sheet"
-        + (f" when scaled to {pw:g}×{ph:g} cm" if pw and ph else "")
-        + ". "
-        f"STRICT no labels/badges/text. {main_wall_hint} "
+        f"Create marketplace MAIN hero image #2. White or very light neutral background; product sheet dominant. "
+        f"{amazon_main_rules} STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} "
+        f"Product story: {desc}.",
+        f"Create marketplace MAIN hero image #3 (lifestyle secondary only if needed). Applied backsplash/wall pattern "
+        f"MUST match reference tile grid and colors. {scale_block} "
+        f"STRICT no labels/badges/text. {main_wall_hint} {amazon_detail_rules} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
-        f"Create marketplace MAIN hero image #4. Emphasize texture/gloss fidelity from reference with realistic shadows. "
-        f"STRICT no labels/badges/text. {main_wall_hint2} "
+        f"Create marketplace MAIN hero image #4. Macro emphasis on 3D gel/epoxy gloss and tile relief from reference. "
+        f"STRICT no labels/badges/text. {main_wall_hint2} {amazon_detail_rules} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
     ]
     detail_prompts: list[str] = [
@@ -684,14 +767,27 @@ def generate_suite_images_ai(
             "Do NOT allocate large area to lifestyle room render in this size chart image. "
             f"Product story: {desc}. {global_rules} {mode_rules} {strict_rules} {core_listing}"
         ),
-        f"Create DETAIL image showing installation/use scenario with realistic home context. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
-        f"Create DETAIL macro close-up image showing material texture and print fidelity. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
-        f"Create DETAIL image with scale reference against common objects. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Dimensions context: {dims}.",
-        f"Create DETAIL image for package composition and accessories using visual composition only. "
-        f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
+        (
+            f"Create DETAIL image: kitchen backsplash installation—hands applying ONE sheet. {scale_block} "
+            f"Pattern on wall and held sheet MUST match reference (same 2×6 vertical tile grid and green tones). "
+            f"{mat_block} STRICT no labels/badges/text. {amazon_detail_rules} "
+            f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
+        ),
+        (
+            f"Create DETAIL macro close-up of tile surface showing 3D epoxy dome gloss and print fidelity. "
+            f"{mat_block} STRICT no labels/badges/text. {amazon_detail_rules} "
+            f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
+        ),
+        (
+            f"Create DETAIL image with scale reference (ruler or common kitchen objects). {scale_block} "
+            f"STRICT no labels/badges/text. {amazon_detail_rules} "
+            f"{global_rules} {mode_rules} {strict_rules} {core_listing} Dimensions context: {dims}."
+        ),
+        (
+            f"Create DETAIL flat-lay of multiple sheets from the same pack (sheet form, NOT roll). "
+            f"STRICT no labels/badges/text. {amazon_detail_rules} "
+            f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
+        ),
     ]
     scene_rows: list[SceneImage] = []
     if scene_category_id:
@@ -705,13 +801,29 @@ def generate_suite_images_ai(
 
     sort_order = 0
     for i in range(main_count):
-        instr = main_prompts[min(i, len(main_prompts) - 1)]
-        if precise_hint:
-            instr += f" Precise attach constraints: {precise_hint}"
-        raw, used_provider = _listing_image_with_retry(
-            ai_service, provider_chain, source_for_ai, instr, allow_text=False
-        )
-        img_bytes = resize_and_save(raw, main_w, main_h, pil_fmt)
+        if platform_code == "amazon" and i == 0:
+            img_bytes = export_listing_image(
+                source_image_bytes,
+                main_w,
+                main_h,
+                pil_fmt,
+                fill_ratio=0.88,
+                fit_mode="contain",
+                trim_borders=True,
+            )
+            used_provider = "source"
+        else:
+            instr = main_prompts[min(i, len(main_prompts) - 1)]
+            if precise_hint:
+                instr += f" Precise attach constraints: {precise_hint}"
+            raw, used_provider = _listing_image_with_retry(
+                ai_service, provider_chain, source_for_ai, instr, allow_text=False
+            )
+            fit = "contain" if i == 0 else "cover"
+            fill = 0.88 if i == 0 else 0.94
+            img_bytes = export_listing_image(
+                raw, main_w, main_h, pil_fmt, fill_ratio=fill, fit_mode=fit, trim_borders=True
+            )
         fname = f"main_{i+1}_{used_provider}_{uuid.uuid4().hex[:6]}.{ext}"
         path = storage.save(io.BytesIO(img_bytes), f"suites/{suite.id}", fname)
         db.add(
@@ -812,7 +924,9 @@ def generate_suite_images_ai(
             raw, used_provider = _listing_image_with_retry(
                 ai_service, provider_chain, source_for_ai, instr, allow_text=allow_text
             )
-        img_bytes = resize_and_save(raw, sec_w, sec_h, pil_fmt)
+        img_bytes = export_listing_image(
+            raw, sec_w, sec_h, pil_fmt, fill_ratio=0.94, fit_mode="cover", trim_borders=True
+        )
         fname = f"detail_{i+1}_{used_provider}_{uuid.uuid4().hex[:6]}.{ext}"
         path = storage.save(io.BytesIO(img_bytes), f"suites/{suite.id}", fname)
         db.add(

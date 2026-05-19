@@ -193,7 +193,7 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="previewVisible" title="预览图" width="760px">
+    <el-dialog v-model="previewVisible" title="预览图（原图分辨率）" width="min(96vw, 960px)">
       <div class="preview-wrap">
         <el-button class="nav-btn left" :disabled="previewList.length <= 1" @click="prevPreview">‹</el-button>
         <img v-if="previewSrc" :src="previewSrc" class="preview-img" />
@@ -469,8 +469,8 @@ load()
 .job .err { color: var(--el-color-danger); margin-left: 8px; }
 .mini-row { display: flex; gap: 4px; flex-wrap: wrap; }
 .mini { width: 44px; height: 44px; border-radius: 4px; overflow: hidden; }
-.preview-wrap { position: relative; background: #fff; display: flex; justify-content: center; align-items: center; min-height: 360px; }
-.preview-img { max-width: 100%; max-height: 72vh; object-fit: contain; background: #fff; }
+.preview-wrap { position: relative; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: min(72vh, 720px); width: 100%; }
+.preview-img { width: 100%; max-width: 920px; max-height: 72vh; object-fit: contain; background: #fff; }
 .nav-btn { position: absolute; z-index: 2; width: 34px; height: 34px; border-radius: 50%; }
 .nav-btn.left { left: 10px; }
 .nav-btn.right { right: 10px; }
