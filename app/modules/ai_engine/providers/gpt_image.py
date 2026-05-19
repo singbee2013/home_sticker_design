@@ -425,6 +425,37 @@ class GPTImageProvider(AIProvider):
             raise RuntimeError(f"GPT-Image text2img failed: {self._format_http_error(exc)}") from exc
         return self._decode(resp.json())
 
+    def listing_image_from_product(self, product_png: bytes, instruction: str, **kwargs) -> bytes:
+        """E-commerce listing render guided by reference product image (img2img)."""
+        allow_text = bool(kwargs.get("allow_text", False))
+        prompt = (
+            f"{instruction} Keep the product print identical to the reference image. "
+            "Photorealistic marketplace photography."
+        )
+        if not allow_text:
+            prompt += " No visible text, logos, labels, or watermarks."
+        try:
+            from PIL import Image
+            import io as _io
+
+            img = Image.open(_io.BytesIO(product_png))
+            w, h = img.size
+            # Preserve product aspect ratio for edit API
+            target = 1024
+            if w >= h:
+                tw, th = target, max(512, int(target * h / max(w, 1)))
+            else:
+                th, tw = target, max(512, int(target * w / max(h, 1)))
+        except Exception:
+            tw, th = 1024, 1024
+        return self.image_to_image(
+            product_png,
+            prompt=prompt,
+            width=tw,
+            height=th,
+            **kwargs,
+        )
+
     def image_to_image(self, image_data: bytes, prompt: str = "",
                        style_hint: str = "", width: int = 1024, height: int = 1024,
                        **kwargs) -> bytes:

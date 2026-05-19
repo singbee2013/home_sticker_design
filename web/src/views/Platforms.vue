@@ -77,7 +77,7 @@
         <span class="muted">宽 × 高</span>
         <div class="lbl compact">产品厚度(mm)</div>
         <el-input-number v-model="form.thickness_mm" :min="0" :max="200" :step="0.1" />
-        <span class="muted">会自动写入尺寸图说明（cm + inch）</span>
+        <span class="muted">会自动写入尺寸图说明（cm + inch）；单片墙贴默认按此宽高作为贴图单元</span>
       </div>
       <div class="count-card">
         <div class="count-title">数量配置</div>
@@ -402,7 +402,7 @@ async function submitSuite() {
     const productW = form.product_width_cm || form.spec_width_cm
     const productH = form.product_height_cm || form.spec_height_cm
     const tileW = form.tile_width_cm || form.spec_width_cm
-    const tileH = form.tile_height_cm || form.spec_width_cm
+    const tileH = form.tile_height_cm || form.spec_height_cm
     if (productW) fd.append('product_width_cm', String(productW))
     if (productH) fd.append('product_height_cm', String(productH))
     if (tileW) fd.append('tile_width_cm', String(tileW))

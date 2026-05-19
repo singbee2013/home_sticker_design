@@ -199,7 +199,8 @@ class GeminiProvider(AIProvider):
         b64img = base64.b64encode(product_png).decode()
         mime = self._guess_mime(product_png)
         full = (
-            f"{instruction} Keep the product truthful to the reference image. "
+            f"{instruction} The reference photo is the ONLY source for pattern, tile grid, colors, and gloss—"
+            "do not redesign or substitute motifs. Keep the product truthful to the reference image. "
             "Photorealistic ecommerce photography. No watermarks, no unreadable text overlays."
         )
         if not allow_text:

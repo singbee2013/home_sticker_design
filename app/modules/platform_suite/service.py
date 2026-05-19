@@ -30,8 +30,9 @@ _log = logging.getLogger(__name__)
 
 
 def _provider_retry_chain(requested: str | None, available: list[str]) -> list[str]:
+    """Prefer image-guided providers for listing fidelity (reference photo required)."""
     order: list[str] = []
-    for name in [requested, "gemini", "wanxiang", "siliconflow"]:
+    for name in [requested, "gemini", "gpt_image", "wanxiang", "siliconflow"]:
         if name and name in available and name not in order:
             order.append(name)
     return order
@@ -124,19 +125,20 @@ def _listing_prompt_text(product_description: str | None, dimensions_spec: str |
 
 
 def _parse_product_cm_from_dims(dimensions_spec: str) -> tuple[float | None, float | None]:
-    """Parse 'Product size: 22.9 cm x 29 cm' from dimensions_spec (frontend-enriched)."""
+    """Parse product W×H cm from dimensions_spec (EN or 中文)."""
     s = dimensions_spec or ""
-    m = re.search(
-        r"Product\s+size:\s*([0-9]+(?:\.[0-9]+)?)\s*cm\s*x\s*([0-9]+(?:\.[0-9]+)?)\s*cm",
-        s,
-        re.I,
-    )
-    if not m:
-        return None, None
-    try:
-        return float(m.group(1)), float(m.group(2))
-    except ValueError:
-        return None, None
+    for pat in (
+        r"Product\s+size:\s*([0-9]+(?:\.[0-9]+)?)\s*cm\s*[x×]\s*([0-9]+(?:\.[0-9]+)?)\s*cm",
+        r"([0-9]+(?:\.[0-9]+)?)\s*cm\s*[x×]\s*([0-9]+(?:\.[0-9]+)?)\s*cm",
+        r"宽\s*([0-9]+(?:\.[0-9]+)?)\s*cm.*高\s*([0-9]+(?:\.[0-9]+)?)\s*cm",
+    ):
+        m = re.search(pat, s, re.I)
+        if m:
+            try:
+                return float(m.group(1)), float(m.group(2))
+            except ValueError:
+                continue
+    return None, None
 
 
 def _infer_packaging_form(combined_lower: str) -> str:
@@ -173,9 +175,22 @@ def _packaging_block(form: str) -> str:
 
 def _reference_fidelity_block() -> str:
     return (
-        "REFERENCE FIDELITY: The uploaded image defines the sellable print—pattern, colors, motif layout, and tile grid "
-        "must match closely. Do NOT redesign, recolor, or substitute a different motif. Change only scene, lighting, angle, "
-        "and presentation."
+        "REFERENCE FIDELITY (CRITICAL): The uploaded reference image is the ONLY source of truth for the sellable artwork. "
+        "Preserve the exact tile grid layout, row/column count, color distribution, gloss level, and 3D relief appearance. "
+        "Do NOT invent a different brick pattern, random stacked tiles, alternate colorways, or a wallpaper-roll form factor. "
+        "You may change only camera angle, room context, lighting, and props—not the printed pattern itself."
+    )
+
+
+def _sheet_hero_block(pw: float | None, ph: float | None) -> str:
+    size = ""
+    if pw and ph:
+        size = f" The purchasable unit is one flat sheet approximately {pw:g} cm (width) × {ph:g} cm (height). "
+    return (
+        "SHEET HERO: Show the product as the same flat sheet/panel from the reference (flat-lay or slight perspective), "
+        "not a loose pile of different tiles. If applied on a wall, the visible pattern must still match the reference sheet "
+        "when scaled to the stated size."
+        + size
     )
 
 
@@ -204,17 +219,23 @@ def _dimension_plausibility_block(dims: str, product_w_cm: float | None, product
 
 
 def resize_and_save(image_bytes: bytes, width: int, height: int, fmt: str = "PNG") -> bytes:
+    """Fit inside platform frame with white letterbox — avoid stretching product aspect ratio."""
     img = Image.open(io.BytesIO(image_bytes))
     fmt_u = fmt.upper()
-    # Always export opaque output to avoid "see-through preview" artifacts.
     if img.mode != "RGBA":
         img = img.convert("RGBA")
-    img = img.resize((width, height), Image.LANCZOS)
-    opaque = Image.new("RGBA", img.size, (255, 255, 255, 255))
-    opaque.alpha_composite(img)
-    img = opaque.convert("RGB" if fmt_u == "JPEG" else "RGBA")
+    fitted = img.copy()
+    fitted.thumbnail((width, height), Image.LANCZOS)
+    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+    ox = (width - fitted.width) // 2
+    oy = (height - fitted.height) // 2
+    canvas.alpha_composite(fitted, (ox, oy))
+    out = canvas.convert("RGB" if fmt_u == "JPEG" else "RGBA")
     buf = io.BytesIO()
-    img.save(buf, format=fmt_u)
+    if fmt_u == "JPEG":
+        out.save(buf, format=fmt_u, quality=93)
+    else:
+        out.save(buf, format=fmt_u)
     return buf.getvalue()
 
 
@@ -298,6 +319,7 @@ def _draw_size_chart_image(
     tile_w_cm: float,
     tile_h_cm: float,
     thickness_mm: float | None,
+    packaging_form: str = "sheet",
 ) -> bytes:
     """Listing-oriented size diagram: large typography (cm + inch), pattern-forward layout."""
     bg = (245, 242, 235)
@@ -432,7 +454,10 @@ def _draw_size_chart_image(
         paste_y = band_top + max(0, (band_h - tile_h_px) // 2)
         canvas.paste(strip, (margin, paste_y))
         draw.rectangle([margin, paste_y, out_w - margin, paste_y + tile_h_px], outline=(120, 115, 105), width=1)
-        band_txt = "ROLL / STRIP PREVIEW (pattern repeat along length)"
+        if packaging_form == "roll":
+            band_txt = "ROLL / STRIP PREVIEW (pattern repeat along length)"
+        else:
+            band_txt = "SHEET / TILE PREVIEW (pattern on flat pack unit)"
         bb = draw.textbbox((0, 0), band_txt, font=font_note)
         btw = bb[2] - bb[0]
         draw.text((margin + max(0, (strip_w - btw) // 2), paste_y - note_fs - 4), band_txt, fill=(55, 52, 48), font=font_note)
@@ -527,10 +552,12 @@ def generate_suite_images_ai(
     spec_pw, spec_ph = _parse_product_cm_from_dims(dims)
     pw: float | None = float(product_width_cm) if product_width_cm is not None else spec_pw
     ph: float | None = float(product_height_cm) if product_height_cm is not None else spec_ph
+    # Default repeat unit = full product sheet (片装墙贴常见为整张规格)
     tw: float = float(tile_width_cm) if tile_width_cm is not None else (float(pw) if pw is not None else 58.0)
     th: float = float(tile_height_cm) if tile_height_cm is not None else (float(ph) if ph is not None else 58.0)
 
     packaging_form = _infer_packaging_form(f"{desc} {dims}".lower())
+    sheet_hero = _sheet_hero_block(pw, ph) if packaging_form == "sheet" else ""
     packaging_block = _packaging_block(packaging_form)
     ref_block = _reference_fidelity_block()
     mat_block = _material_light_geometry_block()
@@ -632,17 +659,20 @@ def generate_suite_images_ai(
             "clear hierarchy, no decorative clutter."
         )
 
-    core_listing = f"{ref_block} {mat_block} {dim_block} {packaging_block}"
+    core_listing = f"{ref_block} {mat_block} {dim_block} {packaging_block} {sheet_hero}"
     main_prompts: list[str] = [
         f"Create marketplace MAIN hero image #1. Photorealistic, premium lighting, product dominant, clean background. "
         f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} "
         f"Product story: {desc}. Dimensions context: {dims}.",
-        f"Create marketplace MAIN hero image #2. Alternate angle for CTR, natural props only, product remains dominant. "
+        f"Create marketplace MAIN hero image #2. Alternate angle for CTR; product sheet must still match reference pattern. "
         f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
-        f"Create marketplace MAIN hero image #3. Strong lifestyle composition while product remains clear and central. "
+        f"Create marketplace MAIN hero image #3. Lifestyle context allowed ONLY if the applied pattern on the wall/surface "
+        f"matches the reference sheet"
+        + (f" when scaled to {pw:g}×{ph:g} cm" if pw and ph else "")
+        + ". "
         f"STRICT no labels/badges/text. {main_wall_hint} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
-        f"Create marketplace MAIN hero image #4. Emphasize texture quality and premium finish with realistic shadows. "
+        f"Create marketplace MAIN hero image #4. Emphasize texture/gloss fidelity from reference with realistic shadows. "
         f"STRICT no labels/badges/text. {main_wall_hint2} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
     ]
@@ -703,7 +733,7 @@ def generate_suite_images_ai(
         allow_text = i == 0
         if i == 0 and pw is not None and ph is not None:
             img_bytes = _draw_size_chart_image(
-                source_image_bytes=source_for_ai,
+                source_image_bytes=source_image_bytes,
                 out_w=sec_w,
                 out_h=sec_h,
                 product_w_cm=float(pw),
@@ -711,6 +741,7 @@ def generate_suite_images_ai(
                 tile_w_cm=float(tw),
                 tile_h_cm=float(th),
                 thickness_mm=_extract_thickness_mm(dims),
+                packaging_form=packaging_form,
             )
             used_provider = "system"
             fname = f"detail_{i+1}_{used_provider}_{uuid.uuid4().hex[:6]}.{ext}"
@@ -729,10 +760,16 @@ def generate_suite_images_ai(
             continue
         # Scene category acts as direction hint; preserve autonomy by varying
         # scene composite ratio by strategy mode.
-        use_scene_composite = i > 0 and bool(scene_rows) and (
-            (mode == "conservative" and i % 4 == 1)
-            or (mode == "balanced" and i % 2 == 1)
-            or (mode == "aggressive")
+        # Scene composite often drifts from reference pattern; prefer listing img2img for sheet packs.
+        use_scene_composite = (
+            packaging_form == "roll"
+            and i > 0
+            and bool(scene_rows)
+            and (
+                (mode == "conservative" and i % 4 == 1)
+                or (mode == "balanced" and i % 2 == 1)
+                or (mode == "aggressive")
+            )
         )
         if use_scene_composite:
             scene_row = scene_rows[(i - 1) % len(scene_rows)]
