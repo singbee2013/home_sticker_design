@@ -10,6 +10,8 @@ from app.modules.category.service import ensure_default_categories
 from app.modules.style.service import ensure_default_styles
 from app.modules.scene.service import ensure_default_scene_categories
 from app.modules.effect.service import ensure_default_effect_categories
+from app.modules.ai_engine.service import recover_stale_tasks
+from app.modules.platform_suite.service import recover_stale_suites
 
 app = create_app()
 
@@ -21,6 +23,8 @@ try:
     ensure_default_styles(db)
     ensure_default_scene_categories(db)
     ensure_default_effect_categories(db)
+    recover_stale_tasks(db)
+    recover_stale_suites(db)
 finally:
     db.close()
 

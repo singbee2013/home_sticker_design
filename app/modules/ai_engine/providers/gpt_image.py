@@ -99,9 +99,9 @@ class GPTImageProvider(AIProvider):
             "OPENAI_BASE_URL", cfg.get("openai_base_url", "https://api.openai.com/v1")
         ).rstrip("/")
 
-        # Default model name on OpenAI public API
+        # Default model name on OpenAI public API / GPTsAPI proxy.
         self.openai_model: str = os.getenv(
-            "OPENAI_IMAGE_MODEL", cfg.get("openai_model", "gpt-image-2")
+            "OPENAI_IMAGE_MODEL", cfg.get("openai_model", "gpt-image-2-plus")
         )
 
         # GPTsAPI proxy: gpt-image-2-plus text-to-image (see user curl example)
@@ -119,7 +119,7 @@ class GPTImageProvider(AIProvider):
         mode = os.getenv("GPT_IMAGE_API_MODE", cfg.get("api_mode", "")).strip().lower()
         if mode in ("gptsapi", "gptsapi_v3", "gpt-image-2-plus"):
             self.use_gptsapi_v3 = True
-        elif "gptsapi.net" in self.openai_base_url and self.openai_api_key:
+        elif "gptsapi.net" in self.openai_base_url:
             self.use_gptsapi_v3 = True
         else:
             self.use_gptsapi_v3 = bool(cfg.get("use_gptsapi_v3", False)) and bool(self.openai_api_key)
@@ -248,8 +248,18 @@ class GPTImageProvider(AIProvider):
         outputs = job.get("outputs")
         if isinstance(outputs, list) and outputs:
             return outputs
+        for key in ("output", "images", "image_urls", "result", "results"):
+            outputs = job.get(key)
+            if isinstance(outputs, list) and outputs:
+                return outputs
         outputs = resp_json.get("outputs")
-        return outputs if isinstance(outputs, list) else []
+        if isinstance(outputs, list) and outputs:
+            return outputs
+        for key in ("output", "images", "image_urls", "result", "results"):
+            outputs = resp_json.get(key)
+            if isinstance(outputs, list) and outputs:
+                return outputs
+        return []
 
     @classmethod
     def _gptsapi_has_image_output(cls, resp_json: dict) -> bool:
@@ -258,7 +268,7 @@ class GPTImageProvider(AIProvider):
             return True
         except (IndexError, RuntimeError, ValueError):
             pass
-        for key in ("image", "b64_json", "base64", "output", "url"):
+        for key in ("image", "b64_json", "base64", "output", "url", "image_url", "result_url"):
             val = resp_json.get(key)
             if isinstance(val, str) and val.strip():
                 return True
@@ -292,10 +302,18 @@ class GPTImageProvider(AIProvider):
             return base64.b64decode(raw)
         if not isinstance(item, dict):
             raise RuntimeError(f"Unexpected GPTsAPI output item: {item!r}")
-        for key in ("url", "image", "b64_json", "base64", "output"):
+        for key in ("url", "image_url", "result_url", "image", "b64_json", "base64", "output"):
             val = item.get(key)
             if isinstance(val, str) and val.strip():
                 return GPTImageProvider._decode_gptsapi_output_item(val)
+        for key in ("urls", "images"):
+            val = item.get(key)
+            if isinstance(val, list) and val:
+                return GPTImageProvider._decode_gptsapi_output_item(val[0])
+            if isinstance(val, dict):
+                for subkey in ("get", "url", "image_url", "result_url"):
+                    if isinstance(val.get(subkey), str) and val[subkey].strip():
+                        return GPTImageProvider._decode_gptsapi_output_item(val[subkey])
         raise RuntimeError(f"Unexpected GPTsAPI output item: {item!r}")
 
     @classmethod
@@ -308,7 +326,7 @@ class GPTImageProvider(AIProvider):
         if outputs:
             return cls._decode_gptsapi_output_item(outputs[0])
 
-        for key in ("image", "b64_json", "base64", "output"):
+        for key in ("image", "b64_json", "base64", "output", "url", "image_url", "result_url"):
             val = resp_json.get(key)
             if isinstance(val, str) and val.strip():
                 return cls._decode_gptsapi_output_item(val)
@@ -319,21 +337,22 @@ class GPTImageProvider(AIProvider):
             if isinstance(item, dict):
                 if item.get("b64_json"):
                     return base64.b64decode(item["b64_json"])
-                if item.get("url"):
-                    return cls._decode_gptsapi_output_item(item["url"])
+                for key in ("url", "image_url", "result_url"):
+                    if item.get(key):
+                        return cls._decode_gptsapi_output_item(item[key])
                 if item.get("image"):
                     return cls._decode_gptsapi_output_item(item["image"])
 
         output = resp_json.get("output")
         if isinstance(output, dict):
-            for key in ("image", "b64_json", "url"):
+            for key in ("image", "b64_json", "url", "image_url", "result_url"):
                 if output.get(key):
                     return cls._decode_gptsapi_output_item(output[key])
 
         raise RuntimeError(f"Unexpected GPTsAPI image response: {str(resp_json)[:500]}")
 
     def _poll_gptsapi_v3(self, get_url: str, headers: dict) -> dict:
-        max_wait = int(os.getenv("GPT_IMAGE_GPTSAPI_POLL_MAX_SEC", "180"))
+        max_wait = int(os.getenv("GPT_IMAGE_GPTSAPI_POLL_MAX_SEC", "600"))
         interval = float(os.getenv("GPT_IMAGE_GPTSAPI_POLL_INTERVAL", "2"))
         deadline = time.time() + max_wait
         last: dict = {}
@@ -386,6 +405,7 @@ class GPTImageProvider(AIProvider):
                 "prompt": full_prompt,
                 "aspect_ratio": kwargs.get("aspect_ratio") or self._aspect_ratio(width, height),
                 "output_format": kwargs.get("output_format") or "png",
+                "model": self.openai_model,
             }
             headers = {
                 "Authorization": f"Bearer {self.openai_api_key}",
@@ -469,6 +489,7 @@ class GPTImageProvider(AIProvider):
                 "prompt": full_prompt,
                 "aspect_ratio": kwargs.get("aspect_ratio") or self._aspect_ratio(width, height),
                 "output_format": kwargs.get("output_format") or "png",
+                "model": self.openai_model,
             }
             headers = {"Authorization": f"Bearer {self.openai_api_key}"}
             # Try multipart if proxy supports reference image; else JSON-only.
@@ -510,4 +531,3 @@ class GPTImageProvider(AIProvider):
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(f"GPT-Image img2img failed: {self._format_http_error(exc)}") from exc
         return self._decode(resp.json())
-

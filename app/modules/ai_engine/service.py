@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import os
 import traceback
+from datetime import datetime, timedelta
 from typing import Dict, Type
 
 from sqlalchemy.orm import Session
@@ -95,6 +96,28 @@ def list_providers() -> list[str]:
     return [n for n in _PROVIDERS.keys() if n != "mock" and _provider_has_credentials(n)]
 
 
+def recover_stale_tasks(db: Session, older_than_minutes: int = 30) -> int:
+    """Mark abandoned pending/processing tasks as failed after process restarts or API timeouts."""
+    cutoff = datetime.now() - timedelta(minutes=max(5, older_than_minutes))
+    rows = (
+        db.query(GenerationTask)
+        .filter(
+            GenerationTask.is_deleted == False,  # noqa: E712
+            GenerationTask.status.in_(("pending", "processing")),
+            GenerationTask.updated_at < cutoff,
+        )
+        .all()
+    )
+    for task in rows:
+        task.status = "failed"
+        task.error_message = (
+            "任务超过预期时间未完成，已自动标记失败。请重新生成；如多次出现，请检查 API Key、网络和模型服务状态。"
+        )
+    if rows:
+        db.commit()
+    return len(rows)
+
+
 # ---- Task execution ----
 
 def create_task(db: Session, task_type: str, prompt: str, provider_name: str | None = None,
@@ -152,6 +175,7 @@ def execute_task(db: Session, task: GenerationTask, ref_image_bytes: bytes | Non
 
 
 def list_tasks(db: Session, created_by: str | None = None, skip: int = 0, limit: int = 50):
+    recover_stale_tasks(db)
     q = db.query(GenerationTask).filter(GenerationTask.is_deleted == False)  # noqa: E712
     if created_by:
         q = q.filter(GenerationTask.created_by == created_by)
@@ -218,4 +242,3 @@ def tasks_to_out(db: Session, tasks: list[GenerationTask]) -> list[TaskOut]:
 
 def task_to_out(db: Session, task: GenerationTask) -> TaskOut:
     return tasks_to_out(db, [task])[0]
-

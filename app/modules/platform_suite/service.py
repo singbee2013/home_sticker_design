@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import uuid
+from datetime import datetime, timedelta
 from typing import List
 
 from PIL import Image, ImageDraw, ImageFont
@@ -106,6 +107,27 @@ def create_suite(
     return suite
 
 
+def recover_stale_suites(db: Session, older_than_minutes: int = 45) -> int:
+    cutoff = datetime.now() - timedelta(minutes=max(10, older_than_minutes))
+    rows = (
+        db.query(PlatformSuite)
+        .filter(
+            PlatformSuite.is_deleted == False,  # noqa: E712
+            PlatformSuite.status.in_(("pending", "processing")),
+            PlatformSuite.updated_at < cutoff,
+        )
+        .all()
+    )
+    for suite in rows:
+        suite.status = "failed"
+        suite.error_message = (
+            "套图任务超过预期时间未完成，已自动标记失败。请重新提交；如多次出现，请检查模型服务、网络和场景图文件。"
+        )
+    if rows:
+        db.commit()
+    return len(rows)
+
+
 def _pil_format(spec_fmt: str) -> str:
     f = (spec_fmt or "PNG").upper()
     return "JPEG" if f == "JPEG" else "PNG"
@@ -136,6 +158,16 @@ def _parse_product_cm_from_dims(dimensions_spec: str) -> tuple[float | None, flo
         if m:
             try:
                 return float(m.group(1)), float(m.group(2))
+            except ValueError:
+                continue
+    for pat in (
+        r"Product\s+size:\s*([0-9]+(?:\.[0-9]+)?)\s*(?:inch|in|inches)\s*[x×]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:inch|in|inches)",
+        r"([0-9]+(?:\.[0-9]+)?)\s*(?:inch|in|inches)\s*[x×]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:inch|in|inches)",
+    ):
+        m = re.search(pat, s, re.I)
+        if m:
+            try:
+                return round(float(m.group(1)) * 2.54, 2), round(float(m.group(2)) * 2.54, 2)
             except ValueError:
                 continue
     return None, None
@@ -210,6 +242,26 @@ def _epoxy_3d_block(desc: str) -> str:
     return (
         "3D EPOXY / GEL DOMING (MANDATORY): Each tile shows raised gel/epoxy dome with visible height, curved specular "
         "highlights, and depth—identical to the reference bump map; never flatten to 2D matte print or plain ceramic."
+    )
+
+
+def _backsplash_tile_sheet_block(desc: str, dims: str, pw: float | None, ph: float | None) -> str:
+    combined = f"{desc} {dims}"
+    if not re.search(r"backsplash|kitchen|厨房|防溅|滴胶|gel|epoxy|3d|peel[-\s]?and[-\s]?stick", combined, re.I):
+        return ""
+    size = ""
+    if pw and ph:
+        size = (
+            f" One sellable sheet is {pw:g} cm × {ph:g} cm "
+            f"({pw / 2.54:.2f} inch × {ph / 2.54:.2f} inch)."
+        )
+    return (
+        "BACKSPLASH TILE SHEET PRODUCT TYPE (MANDATORY): This is a peel-and-stick kitchen backsplash TILE SHEET, "
+        "not wallpaper, not a roll, not ceramic construction material. The sheet has a fixed grid of glossy raised gel tiles. "
+        "For the green 3D gel backsplash reference, preserve the exact 2 rows × 6 columns layout of long vertical rectangle tiles, "
+        "thin light grout/gap lines, dark emerald green marble/stone texture, raised rounded epoxy edges, and strong glossy highlights. "
+        "When showing installed views, repeat the same sheet grid across the backsplash wall with consistent scale and alignment; "
+        "do not invent tiny square mosaic, subway brick offset pattern, random large slabs, or a long wallpaper roll." + size
     )
 
 
@@ -441,13 +493,22 @@ def _draw_size_chart_image(
 
     try:
         pat = Image.open(io.BytesIO(source_image_bytes)).convert("RGB")
-        tile_px_h = max(32, int(ch / 5))
-        tile_px_w = max(32, int(tile_px_h * (tile_w_cm / max(tile_h_cm, 0.01))))
-        pat_r = pat.resize((tile_px_w, tile_px_h), Image.LANCZOS)
         layer = Image.new("RGB", (cw, ch), (255, 255, 255))
-        for yy in range(0, ch + tile_px_h, tile_px_h):
-            for xx in range(0, cw + tile_px_w, tile_px_w):
-                layer.paste(pat_r, (xx, yy))
+        if packaging_form == "roll":
+            tile_px_h = max(32, int(ch / 5))
+            tile_px_w = max(32, int(tile_px_h * (tile_w_cm / max(tile_h_cm, 0.01))))
+            pat_r = pat.resize((tile_px_w, tile_px_h), Image.LANCZOS)
+            for yy in range(0, ch + tile_px_h, tile_px_h):
+                for xx in range(0, cw + tile_px_w, tile_px_w):
+                    layer.paste(pat_r, (xx, yy))
+        else:
+            max_sheet_w = max(1, int(cw * 0.86))
+            max_sheet_h = max(1, int(ch * 0.86))
+            scale = min(max_sheet_w / max(pat.width, 1), max_sheet_h / max(pat.height, 1))
+            sheet_w = max(1, int(pat.width * scale))
+            sheet_h = max(1, int(pat.height * scale))
+            pat_r = pat.resize((sheet_w, sheet_h), Image.LANCZOS)
+            layer.paste(pat_r, ((cw - sheet_w) // 2, (ch - sheet_h) // 2))
         canvas.paste(layer, (chart_x1, chart_y1))
     except Exception:
         draw.rectangle([chart_x1, chart_y1, chart_x2, chart_y2], fill=(255, 255, 255), outline=(130, 130, 130), width=2)
@@ -636,6 +697,7 @@ def generate_suite_images_ai(
     th: float = float(tile_height_cm) if tile_height_cm is not None else (float(ph) if ph is not None else 58.0)
 
     packaging_form = _infer_packaging_form(f"{desc} {dims}".lower())
+    backsplash_block = _backsplash_tile_sheet_block(desc, dims, pw, ph)
     sheet_hero = _sheet_hero_block(pw, ph) if packaging_form == "sheet" else ""
     packaging_block = _packaging_block(packaging_form)
     ref_block = _reference_fidelity_block()
@@ -646,11 +708,10 @@ def generate_suite_images_ai(
     amazon_main_rules = _amazon_main_image_rules() if platform_code == "amazon" else ""
     amazon_detail_rules = _amazon_detail_image_rules() if platform_code == "amazon" else ""
     precise_hint = ""
-    source_for_ai = source_image_bytes
-    source_for_ai = _blend_texture_reference(source_for_ai, texture_bytes)
-    if precise_attach_enabled:
+    source_for_ai = _blend_texture_reference(source_image_bytes, texture_bytes)
+    if precise_attach_enabled and packaging_form == "roll":
         source_for_ai = prepare_material_for_precise_attach(
-            source_image_bytes,
+            source_for_ai,
             pattern_scale_percent=pattern_scale_percent,
             keep_pattern_scale=keep_pattern_scale,
         )
@@ -661,6 +722,7 @@ def generate_suite_images_ai(
                 repeats_y=max(1.0, target_surface_height_cm / max(tile_height_cm, 0.1)),
                 keep_pattern_scale=keep_pattern_scale,
             )
+    if precise_attach_enabled:
         precise_hint = build_precise_attach_hint(
             keep_pattern_scale=keep_pattern_scale,
             pattern_scale_percent=pattern_scale_percent,
@@ -742,20 +804,24 @@ def generate_suite_images_ai(
             "clear hierarchy, no decorative clutter."
         )
 
-    core_listing = f"{ref_block} {mat_block} {dim_block} {scale_block} {packaging_block} {sheet_hero}"
+    core_listing = f"{ref_block} {mat_block} {dim_block} {scale_block} {packaging_block} {sheet_hero} {backsplash_block}"
     main_prompts: list[str] = [
         f"Create marketplace MAIN hero image #1. {amazon_main_rules} "
         f"Photorealistic, premium lighting, product dominant, pure white background. "
+        f"Show ONE complete sellable sheet from the uploaded reference, not a tiled array. "
         f"STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} "
         f"Product story: {desc}. Dimensions context: {dims}.",
         f"Create marketplace MAIN hero image #2. White or very light neutral background; product sheet dominant. "
+        f"Show ONE full flat 2×6 tile sheet front-facing or slight perspective, with a small peeled corner only if it does not hide the grid. "
+        f"FORBID repeating many mini sheets across a white canvas. "
         f"{amazon_main_rules} STRICT no labels/badges/text. {global_rules} {mode_rules} {strict_rules} {core_listing} "
         f"Product story: {desc}.",
         f"Create marketplace MAIN hero image #3 (lifestyle secondary only if needed). Applied backsplash/wall pattern "
-        f"MUST match reference tile grid and colors. {scale_block} "
+        f"MUST match reference tile grid and colors; install repeated 2×6 sheets across the kitchen backsplash with correct scale. {scale_block} "
         f"STRICT no labels/badges/text. {main_wall_hint} {amazon_detail_rules} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
         f"Create marketplace MAIN hero image #4. Macro emphasis on 3D gel/epoxy gloss and tile relief from reference. "
+        f"Camera must be close enough to show raised rounded gel domes, beveled edges, thickness, reflections, and light grout gaps. "
         f"STRICT no labels/badges/text. {main_wall_hint2} {amazon_detail_rules} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
     ]
@@ -770,7 +836,8 @@ def generate_suite_images_ai(
         (
             f"Create DETAIL image: kitchen backsplash installation—hands applying ONE sheet. {scale_block} "
             f"Pattern on wall and held sheet MUST match reference (same 2×6 vertical tile grid and green tones). "
-            f"{mat_block} STRICT no labels/badges/text. {amazon_detail_rules} "
+            f"Show peel backing and hand scale; the held sheet must look about 9×11.4 inch when that size is specified. "
+            f"{mat_block} Allow only clean English step labels if needed: Clean, Peel, Stick, Press. {amazon_detail_rules} "
             f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
         ),
         (
@@ -785,6 +852,8 @@ def generate_suite_images_ai(
         ),
         (
             f"Create DETAIL flat-lay of multiple sheets from the same pack (sheet form, NOT roll). "
+            f"Each sheet must be the same 2×6 glossy gel tile panel; show stacked or fanned flat sheets, not loose individual tiles. "
+            f"Show 3 to 6 large sheets maximum; FORBID a wallpaper-like grid of many tiny repeated sheets. "
             f"STRICT no labels/badges/text. {amazon_detail_rules} "
             f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
         ),
@@ -1068,6 +1137,7 @@ def generate_suite_images(
 
 
 def list_suites(db: Session, platform_code: str | None = None, skip: int = 0, limit: int = 50):
+    recover_stale_suites(db)
     q = db.query(PlatformSuite).filter(PlatformSuite.is_deleted == False)  # noqa: E712
     if platform_code:
         q = q.filter(PlatformSuite.platform_code == platform_code)
