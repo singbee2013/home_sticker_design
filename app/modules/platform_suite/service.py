@@ -241,7 +241,10 @@ def _epoxy_3d_block(desc: str) -> str:
         return ""
     return (
         "3D EPOXY / GEL DOMING (MANDATORY): Each tile shows raised gel/epoxy dome with visible height, curved specular "
-        "highlights, and depth—identical to the reference bump map; never flatten to 2D matte print or plain ceramic."
+        "highlights, and depth—identical to the reference bump map; never flatten to 2D matte print or plain ceramic. "
+        "The surface is a flexible peel-and-stick sheet with a transparent glossy resin layer over a fine stippled / orange-peel "
+        "texture underneath. Use hard-edged white strip reflections, wet-look shine, rounded raised edges, subtle lens-like "
+        "distortion through the clear gel, and pale translucent green grout channels. The sheet can bend slightly when held by hand."
     )
 
 
@@ -259,7 +262,9 @@ def _backsplash_tile_sheet_block(desc: str, dims: str, pw: float | None, ph: flo
         "BACKSPLASH TILE SHEET PRODUCT TYPE (MANDATORY): This is a peel-and-stick kitchen backsplash TILE SHEET, "
         "not wallpaper, not a roll, not ceramic construction material. The sheet has a fixed grid of glossy raised gel tiles. "
         "For the green 3D gel backsplash reference, preserve the exact 2 rows × 6 columns layout of long vertical rectangle tiles, "
-        "thin light grout/gap lines, dark emerald green marble/stone texture, raised rounded epoxy edges, and strong glossy highlights. "
+        "thin pale green grout/gap channels, dark emerald green mottled stipple texture, raised rounded epoxy edges, and strong glossy highlights. "
+        "Surface realism must match a real flexible adhesive product: not smooth glass, not flat printed paper, not ceramic tile. "
+        "Keep fine pebbled micro-texture visible inside each tile below the transparent glossy resin layer. "
         "When showing installed views, repeat the same sheet grid across the backsplash wall with consistent scale and alignment; "
         "do not invent tiny square mosaic, subway brick offset pattern, random large slabs, or a long wallpaper roll." + size
     )
@@ -818,10 +823,13 @@ def generate_suite_images_ai(
         f"Product story: {desc}.",
         f"Create marketplace MAIN hero image #3 (lifestyle secondary only if needed). Applied backsplash/wall pattern "
         f"MUST match reference tile grid and colors; install repeated 2×6 sheets across the kitchen backsplash with correct scale. {scale_block} "
+        f"Wall application must still read as peel-and-stick gel sheets with raised glossy resin, visible pale grout channels, "
+        f"fine stippled texture, and white strip reflections—not flat ceramic tile. "
         f"STRICT no labels/badges/text. {main_wall_hint} {amazon_detail_rules} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
         f"Create marketplace MAIN hero image #4. Macro emphasis on 3D gel/epoxy gloss and tile relief from reference. "
         f"Camera must be close enough to show raised rounded gel domes, beveled edges, thickness, reflections, and light grout gaps. "
+        f"Show fine orange-peel / stippled texture beneath the clear gel and hard white fluorescent-like reflection streaks. "
         f"STRICT no labels/badges/text. {main_wall_hint2} {amazon_detail_rules} "
         f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}.",
     ]
@@ -837,11 +845,15 @@ def generate_suite_images_ai(
             f"Create DETAIL image: kitchen backsplash installation—hands applying ONE sheet. {scale_block} "
             f"Pattern on wall and held sheet MUST match reference (same 2×6 vertical tile grid and green tones). "
             f"Show peel backing and hand scale; the held sheet must look about 9×11.4 inch when that size is specified. "
+            f"Show the flexible sheet bending slightly in the hands, with thick glossy gel ridges and bright white reflection streaks. "
             f"{mat_block} Allow only clean English step labels if needed: Clean, Peel, Stick, Press. {amazon_detail_rules} "
             f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
         ),
         (
             f"Create DETAIL macro close-up of tile surface showing 3D epoxy dome gloss and print fidelity. "
+            f"Extreme close-up must reveal fine pebbled / orange-peel texture under clear resin, raised rounded tile domes, "
+            f"pale green grout channels, dark emerald mottled color variation, and hard white strip highlights. "
+            f"Do NOT render smooth flat glass, matte stone, or ordinary ceramic tile glaze. "
             f"{mat_block} STRICT no labels/badges/text. {amazon_detail_rules} "
             f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
         ),
@@ -854,6 +866,7 @@ def generate_suite_images_ai(
             f"Create DETAIL flat-lay of multiple sheets from the same pack (sheet form, NOT roll). "
             f"Each sheet must be the same 2×6 glossy gel tile panel; show stacked or fanned flat sheets, not loose individual tiles. "
             f"Show 3 to 6 large sheets maximum; FORBID a wallpaper-like grid of many tiny repeated sheets. "
+            f"At least one sheet edge should reveal flexible thin adhesive-sheet construction and glossy raised resin surface. "
             f"STRICT no labels/badges/text. {amazon_detail_rules} "
             f"{global_rules} {mode_rules} {strict_rules} {core_listing} Product story: {desc}."
         ),
